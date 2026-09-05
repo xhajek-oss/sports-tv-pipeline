@@ -1,0 +1,12 @@
+name: Telegram Digest
+
+on:
+  workflow_dispatch:
+
+jobs:
+  digest:
+    uses: ./.github/workflows/_pipeline.yml
+    with:
+      mode: digest
+      source: all
+    secrets: inherit
