@@ -1,0 +1,12 @@
+name: Telegram Weekly Report
+
+on:
+  workflow_dispatch:
+
+jobs:
+  weekly:
+    uses: ./.github/workflows/_pipeline.yml
+    with:
+      mode: weekly
+      source: all
+    secrets: inherit
