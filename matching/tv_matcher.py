@@ -129,9 +129,9 @@ def _hockey_team(value: str) -> str:
     words = team.split()
     while words and words[0] in {"elh", "hokej", "extraliga"}:
         words.pop(0)
-    if words and words[0] in {"hc", "bk"}:
+    if words and words[0] in {"hc", "bk", "hk"}:
         words.pop(0)
-    if words and words[-1] == "hk":
+    if words and words[-1] in {"hc", "bk", "hk"}:
         words.pop()
     return " ".join(words)
 
