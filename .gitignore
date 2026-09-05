@@ -1,0 +1,10 @@
+__pycache__/
+.pytest_cache/
+.venv/
+.env
+data/*.db
+data/health_state.json
+data/validation_state.json
+artifacts/debug/
+discovery/output/
+*.pyc

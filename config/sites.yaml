@@ -1,0 +1,11 @@
+sites:
+  hcdynamo:
+    url: "https://www.hcdynamo.cz/matches/MUZ"
+  biathlonworld:
+    url: "https://www.biathlonworld.com/calendar"
+  iihf:
+    url: "https://www.iihf.com/"
+  diamondleague:
+    url: "https://www.diamondleague.com/"
+  worldathletics:
+    url: "https://worldathletics.org/"
