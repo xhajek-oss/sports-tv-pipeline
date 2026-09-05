@@ -27,7 +27,7 @@ COUNTRIES = {
     "CH": "Švýcarsko", "CHE": "Švýcarsko", "SWITZERLAND": "Švýcarsko",
     "CZ": "Česko", "CZE": "Česko", "CZECHIA": "Česko", "CZECH REPUBLIC": "Česko",
     "DE": "Německo", "DEU": "Německo", "GERMANY": "Německo",
-    "DK": "Dánsko", "DNK": "Dánsko", "DENMARK": "Dánsko",
+    "DK": "Dánsko", "DN": "Dánsko", "DNK": "Dánsko", "DENMARK": "Dánsko",
     "EE": "Estonsko", "EST": "Estonsko", "ESTONIA": "Estonsko",
     "FI": "Finsko", "FIN": "Finsko", "FINLAND": "Finsko",
     "FR": "Francie", "FRA": "Francie", "FRANCE": "Francie",
@@ -341,22 +341,14 @@ def collect_today_items(
 
 
 def _media_signature(item: DigestItem) -> tuple[tuple[str, str, str], ...]:
-    return tuple(
-        (b.distribution, _channel_name(b.channel), b.tv_start.strftime("%H:%M"))
-        for b in item.broadcasts
-    )
+    return tuple((b.distribution, _channel_name(b.channel), b.tv_start.strftime("%H:%M")) for b in item.broadcasts)
 
 
 def _media_lines(broadcasts: tuple[Broadcast, ...], main_start: datetime) -> list[str]:
-    grouped: dict[str, list[str]] = {"tv": [], "online": []}
-    seen: set[tuple[str, str]] = set()
+    grouped: dict[str, list[str]] = defaultdict(list)
     for b in broadcasts:
-        kind = "online" if b.distribution != "tv" else "tv"
+        kind = "online" if b.distribution == "online" else "tv"
         channel = _channel_name(b.channel)
-        key = (kind, channel)
-        if key in seen:
-            continue
-        seen.add(key)
         suffix = "" if b.tv_start == main_start else f" od {b.tv_start:%H:%M}"
         grouped[kind].append(f"{html.escape(channel)}{suffix}")
     lines: list[str] = []
@@ -443,7 +435,7 @@ def format_digest(items: list[DigestItem], *, day: date) -> str | None:
         key=lambda sport: (min(i.start for i in by_sport[sport]), SPORT_PRIORITY.get(sport, 99)),
     )
 
-    lines = ["📺 <b>SPORT V TV</b>", html.escape(_format_date(day))]
+    lines = [html.escape(_format_date(day))]
     formatters = {"hockey": _format_hockey, "biathlon": _format_biathlon, "athletics": _format_athletics}
     for sport in sports:
         lines.append("")
