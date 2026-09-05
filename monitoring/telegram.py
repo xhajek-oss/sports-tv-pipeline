@@ -25,14 +25,17 @@ def format_transition(result: HealthResult, transition: str) -> str:
     )
 
 
-def send_telegram(message: str) -> bool:
+def _send(message: str, *, chat_id_env: str, parse_mode: str | None = None) -> bool:
     token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = os.getenv("TELEGRAM_HEALTH_CHAT_ID")
+    chat_id = os.getenv(chat_id_env)
     if not token or not chat_id:
-        print("[TELEGRAM] health secrets not configured; notification skipped")
+        print(f"[TELEGRAM] {chat_id_env} or bot token not configured; notification skipped")
         return False
 
-    payload = urlencode({"chat_id": chat_id, "text": message}).encode("utf-8")
+    data = {"chat_id": chat_id, "text": message}
+    if parse_mode:
+        data["parse_mode"] = parse_mode
+    payload = urlencode(data).encode("utf-8")
     request = Request(
         f"https://api.telegram.org/bot{token}/sendMessage",
         data=payload,
@@ -41,7 +44,19 @@ def send_telegram(message: str) -> bool:
     with urlopen(request, timeout=20) as response:
         if response.status >= 400:
             raise RuntimeError(f"Telegram HTTP {response.status}")
-        data = json.loads(response.read().decode("utf-8"))
-        if not data.get("ok"):
-            raise RuntimeError(f"Telegram API error: {data}")
+        result = json.loads(response.read().decode("utf-8"))
+        if not result.get("ok"):
+            raise RuntimeError(f"Telegram API error: {result}")
     return True
+
+
+def send_telegram(message: str) -> bool:
+    return _send(message, chat_id_env="TELEGRAM_HEALTH_CHAT_ID")
+
+
+def send_digest(message: str) -> bool:
+    return _send(
+        message,
+        chat_id_env="TELEGRAM_DIGEST_CHAT_ID",
+        parse_mode="HTML",
+    )
