@@ -35,7 +35,7 @@ jobs:
             validation-state-
 
       - name: Restore production database
-        if: inputs.mode == 'production' || inputs.mode == 'digest'
+        if: inputs.mode == 'production' || inputs.mode == 'digest' || inputs.mode == 'weekly'
         uses: actions/cache/restore@v4
         with:
           path: data/sports_events.db
