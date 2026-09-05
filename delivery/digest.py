@@ -370,8 +370,9 @@ def _format_hockey(items: list[DigestItem]) -> list[str]:
             lines.append("")
         if competition:
             lines.append(f"🏆 {html.escape(competition)}")
-        for item in by_comp[competition]:
-            lines.append("")
+        for item_index, item in enumerate(by_comp[competition]):
+            if item_index:
+                lines.append("")
             lines.append(f"<b>{item.start:%H:%M}</b>  {html.escape(item.title)}")
             lines.extend(_media_lines(item.broadcasts, item.start))
     return lines
@@ -393,7 +394,6 @@ def _format_biathlon(items: list[DigestItem]) -> list[str]:
         if first.location:
             place = first.location + (f" ({first.country})" if first.country else "")
             lines.append(html.escape(place))
-        lines.append("")
 
         signatures = {_media_signature(item) for item in group}
         shared_media = len(signatures) == 1
@@ -418,7 +418,8 @@ def _format_athletics(items: list[DigestItem]) -> list[str]:
             if item.competition:
                 lines.append(f"🏆 {html.escape(item.competition)}")
             current_comp = item.competition
-        lines.append("")
+        elif current_comp is not None:
+            lines.append("")
         lines.append(f"<b>{item.start:%H:%M}</b>  {html.escape(item.title)}")
         lines.extend(_media_lines(item.broadcasts, item.start))
     return lines
@@ -437,9 +438,8 @@ def format_digest(items: list[DigestItem], *, day: date) -> str | None:
 
     lines = [html.escape(_format_date(day))]
     formatters = {"hockey": _format_hockey, "biathlon": _format_biathlon, "athletics": _format_athletics}
-    for index, sport in enumerate(sports):
-        if index:
-            lines.append("")
+    for sport in sports:
+        lines.append("")
         lines.extend(formatters[sport](by_sport[sport]))
     return "\n".join(lines).strip()
 
