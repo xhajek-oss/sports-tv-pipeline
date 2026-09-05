@@ -437,8 +437,9 @@ def format_digest(items: list[DigestItem], *, day: date) -> str | None:
 
     lines = [html.escape(_format_date(day))]
     formatters = {"hockey": _format_hockey, "biathlon": _format_biathlon, "athletics": _format_athletics}
-    for sport in sports:
-        lines.append("")
+    for index, sport in enumerate(sports):
+        if index:
+            lines.append("")
         lines.extend(formatters[sport](by_sport[sport]))
     return "\n".join(lines).strip()
 
