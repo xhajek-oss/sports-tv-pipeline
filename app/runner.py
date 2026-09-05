@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
@@ -80,19 +79,6 @@ class PipelineRunner:
         return results
 
     def run_health(self, source: str = "all") -> list[SourceRun]:
-        if os.getenv("HEALTH_SIMULATE_DOWN") == "1":
-            simulated = classify_health(
-                source="health-test",
-                count=0,
-                allow_empty=False,
-                error=RuntimeError("simulated DOWN alert test"),
-            )
-            print("[HEALTH] sending simulated DOWN alert to Telegram")
-            try:
-                send_telegram(format_transition(simulated, "new_problem"))
-            except Exception as exc:
-                print(f"[TELEGRAM] ERROR: {exc}")
-
         state = HealthStateStore(self.health_state)
         results: list[SourceRun] = []
         for spec in selected_sources(source):
