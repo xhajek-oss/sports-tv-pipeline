@@ -57,7 +57,9 @@ def test_format_digest_uses_real_broadcast_time_and_media_types():
     text = format_digest([item], day=date(2026, 9, 5))
 
     assert text is not None
-    assert text.startswith("Sobota 5. září\n🏒 <b>HOKEJ</b>")
+    assert text.startswith("Sobota 5. září\n\n🏒 <b>HOKEJ</b>")
+    assert "🏆 Liga mistrů\n<b>17:45</b>" in text
+    assert "🏆 Liga mistrů\n\n<b>17:45</b>" not in text
     assert "SPORT V TV" not in text
     assert "🏒 <b>HOKEJ</b>" in text
     assert "Liga mistrů" in text
@@ -84,5 +86,6 @@ def test_biathlon_shared_channel_is_printed_once():
     text = format_digest([first, second], day=date(2026, 12, 5))
 
     assert text is not None
+    assert "Hochfilzen (Rakousko)\n<b>11:30</b>" in text
     assert text.count("📺 ČT sport") == 1
     assert text.count("Hochfilzen (Rakousko)") == 1
