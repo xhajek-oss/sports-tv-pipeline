@@ -57,8 +57,8 @@ def test_format_digest_uses_real_broadcast_time_and_media_types():
     text = format_digest([item], day=date(2026, 9, 5))
 
     assert text is not None
-    assert "📺 <b>SPORT V TV</b>" in text
-    assert "Sobota 5. září" in text
+    assert text.startswith("Sobota 5. září")
+    assert "SPORT V TV" not in text
     assert "🏒 <b>HOKEJ</b>" in text
     assert "Liga mistrů" in text
     assert "<b>17:45</b>" in text
