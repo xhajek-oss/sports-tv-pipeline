@@ -13,6 +13,7 @@ idnes:
   channels:
     ct-4-sport: "ČT sport"
     oneplaysport-1: "Oneplay Sport 1"
+    sport2: "Sport2"
 """
 
 
@@ -41,6 +42,27 @@ def test_parses_program_and_converts_prague_to_utc(tmp_path):
     assert row.channel_slug == "ct-4-sport"
     assert row.start_local.isoformat() == "2026-09-05T20:30:00+02:00"
     assert row.end_local.isoformat() == "2026-09-05T22:05:00+02:00"
+
+
+def test_parses_current_idnes_sport2_slug_for_chl(tmp_path):
+    scraper = make_scraper(tmp_path, datetime(2026, 9, 5, 6, tzinfo=timezone.utc))
+    html = """
+    <div class="result-item">
+      <div class="when">16:45 - 19:30</div>
+      <div class="date">Sobota 5.9.</div>
+      <a href="/sport2/so-16.45-ledni-hokej-dynamo-pardubice-rogle.id108000001">
+        Lední hokej: Dynamo Pardubice - Rögle
+      </a>
+      <div class="meta">Sport, High Definition</div>
+    </div>
+    """
+    rows = scraper.parse_search_html(html)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.channel_slug == "sport2"
+    assert row.title == "Lední hokej: Dynamo Pardubice - Rögle"
+    assert row.start_local.isoformat() == "2026-09-05T16:45:00+02:00"
+    assert IdnesTVScraper._is_query_relevant("hokej", row.title)
 
 
 def test_end_time_after_midnight_moves_to_next_day(tmp_path):
