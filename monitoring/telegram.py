@@ -27,9 +27,9 @@ def format_transition(result: HealthResult, transition: str) -> str:
 
 def send_telegram(message: str) -> bool:
     token = os.getenv("TELEGRAM_BOT_TOKEN")
-    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    chat_id = os.getenv("TELEGRAM_HEALTH_CHAT_ID")
     if not token or not chat_id:
-        print("[TELEGRAM] secrets not configured; notification skipped")
+        print("[TELEGRAM] health secrets not configured; notification skipped")
         return False
 
     payload = urlencode({"chat_id": chat_id, "text": message}).encode("utf-8")
