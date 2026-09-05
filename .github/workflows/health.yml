@@ -2,12 +2,6 @@ name: Health Check
 
 on:
   workflow_dispatch:
-    inputs:
-      simulate_down:
-        description: 'Send a simulated DOWN alert to Telegram'
-        required: false
-        default: false
-        type: boolean
 
 jobs:
   health:
@@ -15,5 +9,4 @@ jobs:
     with:
       mode: health
       source: all
-      simulate_down: ${{ inputs.simulate_down }}
     secrets: inherit
