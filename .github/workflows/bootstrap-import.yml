@@ -27,7 +27,7 @@ jobs:
         run: |
           git clone --depth 1 --branch "$SOURCE_REF" "$SOURCE_REPO" /tmp/source
 
-      - name: Import clean Level 5 project
+      - name: Import clean Level 5 runtime
         run: |
           rm -rf app config docs matching models monitoring scrapers storage validation tests data
           rm -f runner.py requirements.txt .gitignore
@@ -53,24 +53,6 @@ jobs:
             tests/test_diamondleague.py \
             tests/test_diamondleague_regex.py \
             tests/test_diamondleague_time.py
-
-          mkdir -p .github/workflows
-          cp /tmp/source/.github/workflows/_pipeline.yml .github/workflows/_pipeline.yml
-          cp /tmp/source/.github/workflows/pr-check.yml .github/workflows/pr-check.yml
-          cp /tmp/source/.github/workflows/health.yml .github/workflows/health.yml
-          cp /tmp/source/.github/workflows/production.yml .github/workflows/production.yml
-          cp /tmp/source/.github/workflows/debug.yml .github/workflows/debug.yml
-          rm -f .github/workflows/bootstrap-import.yml
-
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('.github/workflows/_pipeline.yml')
-          text = path.read_text(encoding='utf-8')
-          start = text.index('      - name: Run PR tests')
-          end = text.index('      - name: Run pipeline', start)
-          replacement = '''      - name: Run full test suite\n        if: inputs.mode == 'pr'\n        run: |\n          pytest -q\n          python runner.py --mode pr\n\n'''
-          path.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
-          PY
 
           cat > README.md <<'EOF'
           # sports-tv-pipeline
