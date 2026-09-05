@@ -127,11 +127,13 @@ def _hockey_team(value: str) -> str:
     """Normalize a team name while retaining its identifying words."""
     team = _norm(value)
     words = team.split()
+    if words[:2] == ["ledni", "hokej"]:
+        words = words[2:]
     while words and words[0] in {"elh", "hokej", "extraliga"}:
         words.pop(0)
-    if words and words[0] in {"hc", "bk"}:
+    if words and words[0] in {"hc", "bk", "hk"}:
         words.pop(0)
-    if words and words[-1] == "hk":
+    if words and words[-1] in {"hc", "bk", "hk"}:
         words.pop()
     return " ".join(words)
 
@@ -178,22 +180,15 @@ def score_pair(event: sqlite3.Row, tv: sqlite3.Row) -> MatchCandidate:
     elif t_sport and e_sport != t_sport:
         return MatchCandidate(event["id"], tv["id"], 0, "no_match", ("sport_conflict",))
 
-    # A specific hockey broadcast must name the same two teams as the event.
-    # Broad studio/magazine programmes have no matchup, so they remain eligible
-    # for the existing time/sport scoring as "possible" candidates.
     if e_sport == "hockey" and t_sport == "hockey":
         event_matchup = _hockey_matchup(event["name"])
         tv_matchup = _hockey_matchup(tv["title"])
         if event_matchup and tv_matchup:
             if event_matchup != tv_matchup:
-                return MatchCandidate(
-                    event["id"], tv["id"], 0, "no_match", ("team_conflict",)
-                )
+                return MatchCandidate(event["id"], tv["id"], 0, "no_match", ("team_conflict",))
             score += 15
             reasons.append("team_matchup")
 
-    # TV blocks often cover several individual events. If end is missing,
-    # allow a conservative 3-hour window for broad sports programming.
     effective_tv_end = tv_end or (tv_start + timedelta(hours=3))
     effective_event_end = event_end or event_start
     overlaps = event_start <= effective_tv_end and effective_event_end >= tv_start
@@ -237,7 +232,6 @@ def score_pair(event: sqlite3.Row, tv: sqlite3.Row) -> MatchCandidate:
             score -= 8
             reasons.append("discipline_conflict")
     elif e_disc and not t_disc:
-        # Broad TV block: no discipline in title is not a penalty.
         reasons.append("broad_tv_block")
 
     e_gender = _gender(e_text)
@@ -272,44 +266,27 @@ def score_pair(event: sqlite3.Row, tv: sqlite3.Row) -> MatchCandidate:
 
 class TVMatcher:
     def __init__(self, db_path: str | Path | None = None) -> None:
-        self.db_path = (
-            PROJECT_ROOT / "data" / "sports_events.db"
-            if db_path is None
-            else Path(db_path).expanduser().resolve()
-        )
+        self.db_path = PROJECT_ROOT / "data" / "sports_events.db" if db_path is None else Path(db_path).expanduser().resolve()
 
     def _connect(self) -> sqlite3.Connection:
         if not self.db_path.exists():
-            raise RuntimeError(
-                f"SQLite database does not exist: {self.db_path}. "
-                "Run the sports scraper and TV scraper first."
-            )
+            raise RuntimeError(f"SQLite database does not exist: {self.db_path}. Run the sports scraper and TV scraper first.")
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        tables = {
-            row[0]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
-        }
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         required = {"sports_events", "tv_programs"}
         missing = sorted(required - tables)
         if missing:
             conn.close()
-            raise RuntimeError(
-                f"SQLite database {self.db_path} is missing required table(s): "
-                + ", ".join(missing)
-            )
+            raise RuntimeError(f"SQLite database {self.db_path} is missing required table(s): " + ", ".join(missing))
         return conn
 
     def find_candidates(self, *, min_score: int = 50, days_before: int = 1, days_after: int = 1) -> list[MatchCandidate]:
         with self._connect() as conn:
             events = conn.execute("SELECT * FROM sports_events ORDER BY start_datetime").fetchall()
             tv_rows = conn.execute("SELECT * FROM tv_programs ORDER BY start_datetime").fetchall()
-
         tv_index = [(row, _parse_dt(row["start_datetime"])) for row in tv_rows]
         results: list[MatchCandidate] = []
-
         for event in events:
             event_start = _parse_dt(event["start_datetime"])
             if not event_start:
@@ -322,38 +299,20 @@ class TVMatcher:
                 candidate = score_pair(event, tv)
                 if candidate.score >= min_score:
                     results.append(candidate)
-
         results.sort(key=lambda x: (-x.score, x.sports_event_id, x.tv_program_id))
         return results
 
-    def candidate_details(
-        self, candidates: Iterable[MatchCandidate]
-    ) -> list[tuple[MatchCandidate, sqlite3.Row, sqlite3.Row]]:
+    def candidate_details(self, candidates: Iterable[MatchCandidate]) -> list[tuple[MatchCandidate, sqlite3.Row, sqlite3.Row]]:
         items = list(candidates)
         if not items:
             return []
-
         event_ids = sorted({item.sports_event_id for item in items})
         tv_ids = sorted({item.tv_program_id for item in items})
         event_placeholders = ",".join("?" for _ in event_ids)
         tv_placeholders = ",".join("?" for _ in tv_ids)
-
         with self._connect() as conn:
-            events = {
-                row["id"]: row
-                for row in conn.execute(
-                    f"SELECT * FROM sports_events WHERE id IN ({event_placeholders})",
-                    event_ids,
-                )
-            }
-            tv_rows = {
-                row["id"]: row
-                for row in conn.execute(
-                    f"SELECT * FROM tv_programs WHERE id IN ({tv_placeholders})",
-                    tv_ids,
-                )
-            }
-
+            events = {row["id"]: row for row in conn.execute(f"SELECT * FROM sports_events WHERE id IN ({event_placeholders})", event_ids)}
+            tv_rows = {row["id"]: row for row in conn.execute(f"SELECT * FROM tv_programs WHERE id IN ({tv_placeholders})", tv_ids)}
         details = []
         for item in items:
             event = events.get(item.sports_event_id)
