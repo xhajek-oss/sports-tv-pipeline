@@ -35,7 +35,7 @@ jobs:
             validation-state-
 
       - name: Restore production database
-        if: inputs.mode == 'production'
+        if: inputs.mode == 'production' || inputs.mode == 'digest'
         uses: actions/cache/restore@v4
         with:
           path: data/sports_events.db
@@ -68,6 +68,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_HEALTH_CHAT_ID: ${{ secrets.TELEGRAM_HEALTH_CHAT_ID }}
+          TELEGRAM_DIGEST_CHAT_ID: ${{ secrets.TELEGRAM_DIGEST_CHAT_ID }}
         run: python runner.py --mode '${{ inputs.mode }}' --source '${{ inputs.source }}'
 
       - name: Save validation state
