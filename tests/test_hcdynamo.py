@@ -1,3 +1,5 @@
+from datetime import timezone
+
 from scrapers.hcdynamo import _ListItemParser, _parse_event_item
 
 
@@ -24,7 +26,6 @@ def test_hcdynamo_parser():
     assert event.sport == "ice_hockey"
     assert event.competition == "Liga Mistrů"
     assert event.name == "HC Dynamo Pardubice - GKS Tychy"
-    assert event.start_datetime.year == 2026
-    assert event.start_datetime.month == 9
-    assert event.start_datetime.day == 3
-    assert event.start_datetime.hour == 18
+    assert event.timezone == "Europe/Prague"
+    assert event.start_datetime.tzinfo == timezone.utc
+    assert event.start_datetime.isoformat() == "2026-09-03T16:00:00+00:00"

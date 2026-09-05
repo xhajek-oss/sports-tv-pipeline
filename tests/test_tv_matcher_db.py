@@ -2,11 +2,12 @@ from pathlib import Path
 
 import pytest
 
+import matching.tv_matcher as tv_matcher
 from matching.tv_matcher import TVMatcher
 
 
 def test_default_db_path_matches_sqlite_storage():
-    assert TVMatcher().db_path == Path("data/sports_events.db")
+    assert TVMatcher().db_path == tv_matcher.PROJECT_ROOT / "data" / "sports_events.db"
 
 
 def test_missing_database_has_clear_error(tmp_path):

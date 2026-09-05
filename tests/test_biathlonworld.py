@@ -1,3 +1,5 @@
+from datetime import timezone
+
 from scrapers.biathlonworld import _parse_competitions
 
 
@@ -34,11 +36,9 @@ def test_biathlonworld_parser():
     assert events[0].name == "Women's Super Sprint Qual."
     assert events[0].location == "Munich"
     assert events[0].country == "Germany"
-    assert events[0].start_datetime.year == 2026
-    assert events[0].start_datetime.month == 10
-    assert events[0].start_datetime.day == 17
-    assert events[0].start_datetime.hour == 9
+    assert events[0].timezone == "Europe/Berlin"
+    assert events[0].start_datetime.tzinfo == timezone.utc
+    assert events[0].start_datetime.isoformat() == "2026-10-17T07:00:00+00:00"
 
     assert events[1].name == "Men's Super Sprint Qual."
-    assert events[1].start_datetime.hour == 10
-    assert events[1].start_datetime.minute == 20
+    assert events[1].start_datetime.isoformat() == "2026-10-17T08:20:00+00:00"
