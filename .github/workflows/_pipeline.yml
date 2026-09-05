@@ -1,0 +1,108 @@
+name: Shared Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        required: true
+        type: string
+      source:
+        required: false
+        default: all
+        type: string
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pipeline-${{ inputs.mode }}-${{ inputs.source }}
+      cancel-in-progress: ${{ inputs.mode != 'production' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Restore validation state
+        if: inputs.mode == 'production'
+        uses: actions/cache/restore@v4
+        with:
+          path: data/validation_state.json
+          key: validation-state-${{ github.run_id }}
+          restore-keys: |
+            validation-state-
+
+      - name: Restore production database
+        if: inputs.mode == 'production'
+        uses: actions/cache/restore@v4
+        with:
+          path: data/sports_events.db
+          key: production-db-${{ github.run_id }}
+          restore-keys: |
+            production-db-
+
+      - name: Restore health state
+        if: inputs.mode == 'health'
+        uses: actions/cache/restore@v4
+        with:
+          path: data/health_state.json
+          key: health-state-${{ github.run_id }}
+          restore-keys: |
+            health-state-
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Run full test suite
+        if: inputs.mode == 'pr'
+        run: |
+          pytest -q
+          python runner.py --mode pr
+
+      - name: Run pipeline
+        if: inputs.mode != 'pr'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python runner.py --mode '${{ inputs.mode }}' --source '${{ inputs.source }}'
+
+      - name: Save validation state
+        if: always() && inputs.mode == 'production'
+        uses: actions/cache/save@v4
+        with:
+          path: data/validation_state.json
+          key: validation-state-${{ github.run_id }}
+
+      - name: Save production database
+        if: always() && inputs.mode == 'production'
+        uses: actions/cache/save@v4
+        with:
+          path: data/sports_events.db
+          key: production-db-${{ github.run_id }}
+
+      - name: Save health state
+        if: always() && inputs.mode == 'health'
+        uses: actions/cache/save@v4
+        with:
+          path: data/health_state.json
+          key: health-state-${{ github.run_id }}
+
+      - name: Upload production database
+        if: always() && inputs.mode == 'production'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sports-events-db
+          path: data/sports_events.db
+          if-no-files-found: warn
+
+      - name: Upload debug artifacts
+        if: always() && inputs.mode == 'debug'
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-${{ inputs.source }}
+          path: artifacts/debug
+          if-no-files-found: warn

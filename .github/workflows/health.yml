@@ -1,0 +1,14 @@
+name: Health Check
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+
+jobs:
+  health:
+    uses: ./.github/workflows/_pipeline.yml
+    with:
+      mode: health
+      source: all
+    secrets: inherit

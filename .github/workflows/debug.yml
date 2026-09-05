@@ -1,0 +1,25 @@
+name: Debug Source
+
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Source to diagnose
+        required: true
+        default: idnes
+        type: choice
+        options:
+          - idnes
+          - hcdynamo
+          - biathlonworld
+          - iihf
+          - diamondleague
+          - worldathletics
+
+jobs:
+  debug:
+    uses: ./.github/workflows/_pipeline.yml
+    with:
+      mode: debug
+      source: ${{ inputs.source }}
+    secrets: inherit

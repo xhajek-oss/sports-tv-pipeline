@@ -1,0 +1,14 @@
+name: Production Pipeline
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '7 */6 * * *'
+
+jobs:
+  production:
+    uses: ./.github/workflows/_pipeline.yml
+    with:
+      mode: production
+      source: all
+    secrets: inherit
