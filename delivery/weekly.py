@@ -246,7 +246,7 @@ def format_weekly_report(
                 current_sport = event.sport
                 current_competition = None
             if event.competition and event.competition != current_competition:
-                lines.append(html.escape(event.competition))
+                lines.append(f"🏆 {html.escape(event.competition)}")
                 current_competition = event.competition
             lines.append(f"<b>{event.start:%H:%M}</b>  {html.escape(event.name)}")
             if event.broadcasts:
