@@ -12,13 +12,19 @@ from delivery.digest import (
     UTC,
     _competition_cs,
     _country_cs,
+    _dedupe_broadcasts,
     _format_date,
+    _hockey_title,
+    _is_live_timing,
+    _is_replay,
     _location_cs,
+    _media_lines,
     _norm,
     _parse_dt,
     _sport_name,
     Broadcast,
 )
+from matching.tv_matcher import TVMatcher
 
 SPORT_LABELS = {
     "hockey": "🏒 HOKEJ",
@@ -37,6 +43,7 @@ class WeeklyEvent:
     start: datetime
     location: str | None
     country: str | None
+    broadcasts: tuple[Broadcast, ...] = ()
 
 
 def next_week_range(*, now: datetime | None = None) -> tuple[date, date]:
@@ -65,6 +72,61 @@ def _competition_name(row: sqlite3.Row, sport: str) -> str:
     return _competition_cs(proxy)
 
 
+def _hockey_name(row: sqlite3.Row, competition: str) -> str:
+    proxy = Broadcast(
+        event_id=int(row["id"]),
+        sport="hockey",
+        competition=competition,
+        event_name=row["name"] or "",
+        location=row["location"],
+        country=row["country"],
+        source_url=row["source_url"] or "",
+        tv_start=datetime.now(PRAGUE),
+        tv_end=None,
+        channel="",
+        distribution="tv",
+        tv_title="",
+    )
+    return _hockey_title(proxy)
+
+
+def _tv_matches(db_path: str | Path) -> dict[int, tuple[Broadcast, ...]]:
+    matcher = TVMatcher(db_path)
+    details = matcher.candidate_details(
+        c for c in matcher.find_candidates(min_score=70) if c.status == "match"
+    )
+    grouped: dict[int, list[Broadcast]] = defaultdict(list)
+    for _, event, tv in details:
+        tv_start = _parse_dt(tv["start_datetime"])
+        if tv_start is None:
+            continue
+        if _is_replay(tv["title"] or "") or not _is_live_timing(event, tv):
+            continue
+        grouped[int(event["id"])].append(
+            Broadcast(
+                event_id=int(event["id"]),
+                sport=_sport_name(event["sport"] or ""),
+                competition=event["competition"] or "",
+                event_name=event["name"] or "",
+                location=event["location"],
+                country=event["country"],
+                source_url=event["source_url"] or "",
+                tv_start=tv_start.astimezone(PRAGUE),
+                tv_end=_parse_dt(tv["end_datetime"]),
+                channel=tv["channel"] or "",
+                distribution=(tv["distribution"] or "tv").lower(),
+                tv_title=tv["title"] or "",
+            )
+        )
+    return {event_id: _dedupe_broadcasts(rows) for event_id, rows in grouped.items()}
+
+
+def _ultimate_session_start(start: datetime, competition: str) -> datetime:
+    if _norm(competition) == "world athletics ultimate championship":
+        return start.replace(hour=18, minute=0, second=0, microsecond=0)
+    return start
+
+
 def collect_next_week_events(
     db_path: str | Path = "data/sports_events.db", *, now: datetime | None = None,
 ) -> list[WeeklyEvent]:
@@ -79,7 +141,8 @@ def collect_next_week_events(
     try:
         rows = con.execute(
             """
-            SELECT id, sport, competition, name, start_datetime, location, country, source_url
+            SELECT id, sport, competition, name, start_datetime, end_datetime,
+                   location, country, source_url
             FROM sports_events
             WHERE start_datetime >= ? AND start_datetime < ?
             ORDER BY start_datetime, id
@@ -89,8 +152,10 @@ def collect_next_week_events(
     finally:
         con.close()
 
+    tv_by_event = _tv_matches(db_path)
     events: list[WeeklyEvent] = []
-    athletics_seen: set[tuple[date, str, str]] = set()
+    athletics_groups: dict[tuple[date, str, str], list[tuple[sqlite3.Row, datetime, str, str | None, str | None]]] = defaultdict(list)
+
     for row in rows:
         start = _parse_dt(row["start_datetime"])
         if start is None:
@@ -103,28 +168,55 @@ def collect_next_week_events(
 
         if sport == "athletics":
             key = (local_start.date(), _norm(competition), _norm(location or row["name"] or ""))
-            if key in athletics_seen:
-                continue
-            athletics_seen.add(key)
-            if location and country:
-                name = f"{location} ({country})"
-            else:
-                name = location or row["name"] or "Atletika"
+            athletics_groups[key].append((row, local_start, competition, location, country))
+            continue
+
+        broadcasts = tv_by_event.get(int(row["id"]), ())
+        display_start = min((b.tv_start for b in broadcasts), default=local_start)
+        if sport == "hockey":
+            name = _hockey_name(row, competition)
         else:
             name = (row["name"] or "").replace(" - ", " – ")
-
         events.append(
             WeeklyEvent(
                 event_id=int(row["id"]),
                 sport=sport,
                 competition=competition,
                 name=name,
-                start=local_start,
+                start=display_start,
                 location=location,
                 country=country,
+                broadcasts=broadcasts,
             )
         )
-    return events
+
+    for group in athletics_groups.values():
+        group.sort(key=lambda item: item[1])
+        first_row, first_start, competition, location, country = group[0]
+        all_broadcasts: list[Broadcast] = []
+        for row, _, _, _, _ in group:
+            all_broadcasts.extend(tv_by_event.get(int(row["id"]), ()))
+        broadcasts = _dedupe_broadcasts(all_broadcasts) if all_broadcasts else ()
+        sports_start = _ultimate_session_start(first_start, competition)
+        display_start = min((b.tv_start for b in broadcasts), default=sports_start)
+        if location and country:
+            name = f"{location} ({country})"
+        else:
+            name = location or first_row["name"] or "Atletika"
+        events.append(
+            WeeklyEvent(
+                event_id=int(first_row["id"]),
+                sport="athletics",
+                competition=competition,
+                name=name,
+                start=display_start,
+                location=location,
+                country=country,
+                broadcasts=broadcasts,
+            )
+        )
+
+    return sorted(events, key=lambda item: (item.start, SPORT_PRIORITY.get(item.sport, 99), item.name))
 
 
 def format_weekly_report(
@@ -157,6 +249,8 @@ def format_weekly_report(
                 lines.append(html.escape(event.competition))
                 current_competition = event.competition
             lines.append(f"<b>{event.start:%H:%M}</b>  {html.escape(event.name)}")
+            if event.broadcasts:
+                lines.extend(_media_lines(event.broadcasts, event.start))
 
     return "\n".join(lines).strip()
 
