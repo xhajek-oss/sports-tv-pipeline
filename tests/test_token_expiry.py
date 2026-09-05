@@ -17,8 +17,8 @@ def test_alert_is_sent_only_on_thresholds_before_expiry():
     assert "za 30 dní" in build_expiry_alert(expiry, 30)
     assert "za 14 dní" in build_expiry_alert(expiry, 14)
     assert "za 7 dní" in build_expiry_alert(expiry, 7)
-    assert "za 3 dní" in build_expiry_alert(expiry, 3)
-    assert "za 1 dní" in build_expiry_alert(expiry, 1)
+    assert "za 3 dny" in build_expiry_alert(expiry, 3)
+    assert "za 1 den" in build_expiry_alert(expiry, 1)
 
 
 def test_alert_on_expiry_day_and_after_expiry():
