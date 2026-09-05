@@ -53,7 +53,7 @@ class PipelineRunner:
         )
         if error is not None:
             (target / "error.txt").write_text(
-                "".join(traceback.format_exception(type(error), error, exc.__traceback__)) if False else "".join(traceback.format_exception(type(error), error, error.__traceback__)),
+                "".join(traceback.format_exception(type(error), error, error.__traceback__)),
                 encoding="utf-8",
             )
 
