@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import traceback
 from dataclasses import dataclass
 from pathlib import Path
@@ -168,6 +169,7 @@ class PipelineRunner:
             if not message:
                 print("[DIGEST] no qualifying live broadcasts today; nothing sent")
                 return [SourceRun("telegram_digest", "delivery", 0, "healthy", "nothing to send")]
+            message = re.sub(r"(🏆 [^\n]+)\n\n", r"\1\n", message)
             sent = send_digest(message)
             if not sent:
                 return [SourceRun(
