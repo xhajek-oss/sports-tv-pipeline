@@ -8,6 +8,7 @@ from typing import Iterable
 
 from app.registry import SourceSpec, selected_sources
 from delivery.digest import build_today_digest
+from delivery.weekly import build_next_week_report
 from matching.tv_matcher import TVMatcher
 from monitoring.health import HealthResult, HealthStateStore, classify_health, jsonable
 from monitoring.telegram import format_transition, send_digest, send_telegram
@@ -179,6 +180,24 @@ class PipelineRunner:
             print(f"[DIGEST] ERROR: {exc}")
             return [SourceRun("telegram_digest", "delivery", 0, "down", str(exc))]
 
+    def run_weekly(self) -> list[SourceRun]:
+        try:
+            message = build_next_week_report(self.db_path)
+            if not message:
+                print("[WEEKLY] no sports events next week; nothing sent")
+                return [SourceRun("telegram_weekly", "delivery", 0, "healthy", "nothing to send")]
+            sent = send_digest(message)
+            if not sent:
+                return [SourceRun(
+                    "telegram_weekly", "delivery", 0, "warning",
+                    "TELEGRAM_BOT_TOKEN or TELEGRAM_DIGEST_CHAT_ID not configured",
+                )]
+            print("[WEEKLY] Telegram weekly report sent")
+            return [SourceRun("telegram_weekly", "delivery", 1, "healthy", "sent")]
+        except Exception as exc:
+            print(f"[WEEKLY] ERROR: {exc}")
+            return [SourceRun("telegram_weekly", "delivery", 0, "down", str(exc))]
+
     def run(self, *, mode: str, source: str = "all") -> list[SourceRun]:
         if mode == "pr":
             return self.run_pr()
@@ -190,4 +209,6 @@ class PipelineRunner:
             return self.run_production(source)
         if mode == "digest":
             return self.run_digest()
+        if mode == "weekly":
+            return self.run_weekly()
         raise ValueError(f"Unknown mode: {mode}")
