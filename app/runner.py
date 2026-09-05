@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Iterable
 
 from app.registry import SourceSpec, selected_sources
+from delivery.digest import build_today_digest
 from matching.tv_matcher import TVMatcher
 from monitoring.health import HealthResult, HealthStateStore, classify_health, jsonable
-from monitoring.telegram import format_transition, send_telegram
+from monitoring.telegram import format_transition, send_digest, send_telegram
 from storage.sqlite import SQLiteStorage
 from validation.event_validator import EventCountValidator
 
@@ -66,8 +67,6 @@ class PipelineRunner:
             self._close_scraper(scraper)
 
     def run_pr(self) -> list[SourceRun]:
-        # PR mode intentionally avoids external websites. Unit tests plus registry
-        # validation make this a deterministic pre-merge gate.
         results = []
         for spec in selected_sources("all"):
             scraper = spec.factory()
@@ -153,8 +152,6 @@ class PipelineRunner:
         finally:
             storage.close()
 
-        # Matching is meaningful only when both sports and TV data are present in
-        # the restored/current production database.
         if source == "all" or "idnes" in source.split(","):
             try:
                 matches = TVMatcher(self.db_path).find_candidates(min_score=50)
@@ -163,6 +160,24 @@ class PipelineRunner:
                 print(f"[PROD] matcher ERROR: {exc}")
                 results.append(SourceRun("tv_matcher", "matcher", 0, "down", str(exc)))
         return results
+
+    def run_digest(self) -> list[SourceRun]:
+        try:
+            message = build_today_digest(self.db_path)
+            if not message:
+                print("[DIGEST] no qualifying live broadcasts today; nothing sent")
+                return [SourceRun("telegram_digest", "delivery", 0, "healthy", "nothing to send")]
+            sent = send_digest(message)
+            if not sent:
+                return [SourceRun(
+                    "telegram_digest", "delivery", 0, "warning",
+                    "TELEGRAM_BOT_TOKEN or TELEGRAM_DIGEST_CHAT_ID not configured",
+                )]
+            print("[DIGEST] Telegram digest sent")
+            return [SourceRun("telegram_digest", "delivery", 1, "healthy", "sent")]
+        except Exception as exc:
+            print(f"[DIGEST] ERROR: {exc}")
+            return [SourceRun("telegram_digest", "delivery", 0, "down", str(exc))]
 
     def run(self, *, mode: str, source: str = "all") -> list[SourceRun]:
         if mode == "pr":
@@ -173,4 +188,6 @@ class PipelineRunner:
             return self.run_debug(source)
         if mode == "production":
             return self.run_production(source)
+        if mode == "digest":
+            return self.run_digest()
         raise ValueError(f"Unknown mode: {mode}")
