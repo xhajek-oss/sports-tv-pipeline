@@ -10,17 +10,15 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from matching.tv_matcher import MatchCandidate, TVMatcher
+from matching.tv_matcher import TVMatcher
 
 PRAGUE = ZoneInfo("Europe/Prague")
 UTC = timezone.utc
 
-DAY_NAMES = (
-    "Pondělí", "Úterý", "Středa", "Čtvrtek", "Pátek", "Sobota", "Neděle"
-)
+DAY_NAMES = ("Pondělí", "Úterý", "Středa", "Čtvrtek", "Pátek", "Sobota", "Neděle")
 MONTH_NAMES = (
     "", "ledna", "února", "března", "dubna", "května", "června",
-    "července", "srpna", "září", "října", "listopadu", "prosince"
+    "července", "srpna", "září", "října", "listopadu", "prosince",
 )
 
 COUNTRIES = {
@@ -68,10 +66,7 @@ CHANNEL_ALIASES = {
     "oneplay sport 4 hd": "Oneplay Sport 4",
 }
 
-REPLAY_TERMS = (
-    "archiv", "zaznam", "repriza", "opakovani", "ze zaznamu"
-)
-
+REPLAY_TERMS = ("archiv", "zaznam", "repriza", "opakovani", "ze zaznamu")
 SPORT_PRIORITY = {"hockey": 0, "biathlon": 1, "athletics": 2}
 
 
@@ -101,7 +96,6 @@ class DigestItem:
     country: str | None
     start: datetime
     broadcasts: tuple[Broadcast, ...]
-    event_rows: tuple[Broadcast, ...]
 
 
 def _norm(value: str | None) -> str:
@@ -135,28 +129,18 @@ def _sport_name(value: str) -> str:
 def _country_cs(value: str | None) -> str | None:
     if not value:
         return None
-    key = value.strip().upper()
-    return COUNTRIES.get(key, value.title())
+    return COUNTRIES.get(value.strip().upper(), value.strip().title())
 
 
 def _location_cs(value: str | None) -> str | None:
     if not value:
         return None
     known = {
-        "BRUSSELS": "Brusel",
-        "BUDAPEST": "Budapešť",
-        "HOCHFILZEN": "Hochfilzen",
-        "KONTIOLAHTI": "Kontiolahti",
-        "LE GRAND BORNAND": "Le Grand-Bornand",
-        "MUNICH": "Mnichov",
-        "MÜNCHEN": "Mnichov",
-        "NOVE MESTO": "Nové Město",
-        "NOVÉ MĚSTO": "Nové Město",
-        "OBERHOF": "Oberhof",
-        "RUHPOLDING": "Ruhpolding",
-        "SJUSJOEN": "Sjusjøen",
-        "SJUSJØEN": "Sjusjøen",
-        "IDRE FJAELL": "Idre Fjäll",
+        "BRUSSELS": "Brusel", "BUDAPEST": "Budapešť", "HOCHFILZEN": "Hochfilzen",
+        "KONTIOLAHTI": "Kontiolahti", "LE GRAND BORNAND": "Le Grand-Bornand",
+        "MUNICH": "Mnichov", "MÜNCHEN": "Mnichov", "NOVE MESTO": "Nové Město",
+        "NOVÉ MĚSTO": "Nové Město", "OBERHOF": "Oberhof", "RUHPOLDING": "Ruhpolding",
+        "SJUSJOEN": "Sjusjøen", "SJUSJØEN": "Sjusjøen", "IDRE FJAELL": "Idre Fjäll",
         "IDRE FJÄLL": "Idre Fjäll",
     }
     return known.get(value.strip().upper(), value.strip().title())
@@ -183,12 +167,11 @@ def _event_live_end(event: sqlite3.Row) -> datetime:
     explicit = _parse_dt(event["end_datetime"])
     if explicit:
         return explicit
-    sport = _sport_name(event["sport"])
     fallback = {
         "hockey": timedelta(hours=3, minutes=30),
         "biathlon": timedelta(hours=2),
         "athletics": timedelta(hours=4),
-    }[sport]
+    }[_sport_name(event["sport"])]
     return start + fallback
 
 
@@ -198,9 +181,8 @@ def _is_live_timing(event: sqlite3.Row, tv: sqlite3.Row) -> bool:
     tv_end = _parse_dt(tv["end_datetime"])
     if event_start is None or tv_start is None:
         return False
-    live_end = _event_live_end(event)
     effective_tv_end = tv_end or tv_start + timedelta(hours=3)
-    return tv_start <= live_end and effective_tv_end >= event_start - timedelta(hours=1)
+    return tv_start <= _event_live_end(event) and effective_tv_end >= event_start - timedelta(hours=1)
 
 
 def _competition_cs(event: Broadcast) -> str:
@@ -225,16 +207,9 @@ def _competition_cs(event: Broadcast) -> str:
 
 def _biathlon_name_cs(value: str) -> str:
     text = value.upper().strip()
-    gender = ""
-    if text.startswith("WOMEN"):
-        gender = "žen"
-    elif text.startswith("MEN"):
-        gender = "mužů"
-
+    gender = "žen" if text.startswith("WOMEN") else "mužů" if text.startswith("MEN") else ""
     distance_match = re.search(r"(\d+(?:\.\d+)?)\s*KM", text)
-    distance = ""
-    if distance_match:
-        distance = distance_match.group(1).replace(".5", ",5") + " km"
+    distance = distance_match.group(1).replace(".5", ",5") + " km" if distance_match else ""
 
     if "SUPER SPRINT" in text:
         discipline = "Super sprint"
@@ -301,46 +276,36 @@ def _dedupe_broadcasts(rows: list[Broadcast]) -> tuple[Broadcast, ...]:
     best: dict[tuple[str, str, datetime], Broadcast] = {}
     for row in rows:
         channel = _channel_name(row.channel)
-        key = (row.distribution, channel, row.tv_start)
-        best[key] = Broadcast(
-            event_id=row.event_id,
-            sport=row.sport,
-            competition=row.competition,
-            event_name=row.event_name,
-            location=row.location,
-            country=row.country,
-            source_url=row.source_url,
-            tv_start=row.tv_start,
-            tv_end=row.tv_end,
-            channel=channel,
-            distribution=row.distribution,
-            tv_title=row.tv_title,
+        normalized = Broadcast(
+            event_id=row.event_id, sport=row.sport, competition=row.competition,
+            event_name=row.event_name, location=row.location, country=row.country,
+            source_url=row.source_url, tv_start=row.tv_start, tv_end=row.tv_end,
+            channel=channel, distribution=row.distribution, tv_title=row.tv_title,
         )
+        best[(normalized.distribution, normalized.channel, normalized.tv_start)] = normalized
     return tuple(sorted(best.values(), key=lambda x: (x.tv_start, x.distribution != "tv", x.channel)))
 
 
 def collect_today_items(
-    db_path: str | Path = "data/sports_events.db",
-    *,
-    now: datetime | None = None,
+    db_path: str | Path = "data/sports_events.db", *, now: datetime | None = None,
 ) -> list[DigestItem]:
     now_local = (now or datetime.now(PRAGUE)).astimezone(PRAGUE)
     today = now_local.date()
     matcher = TVMatcher(db_path)
-    candidates = [c for c in matcher.find_candidates(min_score=70) if c.status == "match"]
-    details = matcher.candidate_details(candidates)
+    details = matcher.candidate_details(
+        c for c in matcher.find_candidates(min_score=70) if c.status == "match"
+    )
 
     grouped: dict[str, list[Broadcast]] = defaultdict(list)
-    for candidate, event, tv in details:
+    for _, event, tv in details:
         tv_start = _parse_dt(tv["start_datetime"])
         if tv_start is None or tv_start.astimezone(PRAGUE).date() != today:
             continue
         if _is_replay(tv["title"] or "") or not _is_live_timing(event, tv):
             continue
-        sport = _sport_name(event["sport"])
         b = Broadcast(
             event_id=int(event["id"]),
-            sport=sport,
+            sport=_sport_name(event["sport"]),
             competition=event["competition"] or "",
             event_name=event["name"] or "",
             location=event["location"],
@@ -361,36 +326,29 @@ def collect_today_items(
             continue
         first = min(rows, key=lambda x: x.tv_start)
         if first.sport == "hockey":
-            title = _hockey_title(first)
-            location = None
-            country = None
+            title, location, country = _hockey_title(first), None, None
         elif first.sport == "biathlon":
             title = _biathlon_name_cs(first.event_name)
-            location = _location_cs(first.location)
-            country = _country_cs(first.country)
+            location, country = _location_cs(first.location), _country_cs(first.country)
         else:
-            title = _athletics_title(first)
-            location = None
-            country = None
-        items.append(
-            DigestItem(
-                key=key,
-                sport=first.sport,
-                competition=_competition_cs(first),
-                title=title,
-                location=location,
-                country=country,
-                start=min(b.tv_start for b in broadcasts),
-                broadcasts=broadcasts,
-                event_rows=tuple(rows),
-            )
-        )
+            title, location, country = _athletics_title(first), None, None
+        items.append(DigestItem(
+            key=key, sport=first.sport, competition=_competition_cs(first), title=title,
+            location=location, country=country, start=min(b.tv_start for b in broadcasts),
+            broadcasts=broadcasts,
+        ))
+    return items
 
-    return sorted(items, key=lambda x: (x.start, SPORT_PRIORITY.get(x.sport, 99), x.title))
+
+def _media_signature(item: DigestItem) -> tuple[tuple[str, str, str], ...]:
+    return tuple(
+        (b.distribution, _channel_name(b.channel), b.tv_start.strftime("%H:%M"))
+        for b in item.broadcasts
+    )
 
 
 def _media_lines(broadcasts: tuple[Broadcast, ...], main_start: datetime) -> list[str]:
-    by_type: dict[str, list[str]] = {"tv": [], "online": []}
+    grouped: dict[str, list[str]] = {"tv": [], "online": []}
     seen: set[tuple[str, str]] = set()
     for b in broadcasts:
         kind = "online" if b.distribution != "tv" else "tv"
@@ -400,59 +358,101 @@ def _media_lines(broadcasts: tuple[Broadcast, ...], main_start: datetime) -> lis
             continue
         seen.add(key)
         suffix = "" if b.tv_start == main_start else f" od {b.tv_start:%H:%M}"
-        by_type[kind].append(f"{html.escape(channel)}{suffix}")
-    lines = []
-    if by_type["tv"]:
-        lines.append("📺 " + " • ".join(by_type["tv"]))
-    if by_type["online"]:
-        lines.append("💻 " + " • ".join(by_type["online"]))
+        grouped[kind].append(f"{html.escape(channel)}{suffix}")
+    lines: list[str] = []
+    if grouped["tv"]:
+        lines.append("📺 " + " • ".join(grouped["tv"]))
+    if grouped["online"]:
+        lines.append("💻 " + " • ".join(grouped["online"]))
+    return lines
+
+
+def _format_hockey(items: list[DigestItem]) -> list[str]:
+    lines = ["🏒 <b>HOKEJ</b>"]
+    by_comp: dict[str, list[DigestItem]] = defaultdict(list)
+    for item in sorted(items, key=lambda x: x.start):
+        by_comp[item.competition].append(item)
+    competitions = sorted(by_comp, key=lambda c: min(i.start for i in by_comp[c]))
+    for index, competition in enumerate(competitions):
+        if index:
+            lines.append("")
+        if competition:
+            lines.append(html.escape(competition))
+        for item in by_comp[competition]:
+            lines.append("")
+            lines.append(f"<b>{item.start:%H:%M}</b>  {html.escape(item.title)}")
+            lines.extend(_media_lines(item.broadcasts, item.start))
+    return lines
+
+
+def _format_biathlon(items: list[DigestItem]) -> list[str]:
+    lines = ["🎯 <b>BIATLON</b>"]
+    groups: dict[tuple[str, str | None, str | None], list[DigestItem]] = defaultdict(list)
+    for item in items:
+        groups[(item.competition, item.location, item.country)].append(item)
+    ordered = sorted(groups.values(), key=lambda group: min(i.start for i in group))
+    for group_index, group in enumerate(ordered):
+        group.sort(key=lambda x: x.start)
+        if group_index:
+            lines.append("")
+        first = group[0]
+        if first.competition:
+            lines.append(html.escape(first.competition))
+        if first.location:
+            place = first.location + (f" ({first.country})" if first.country else "")
+            lines.append(html.escape(place))
+        lines.append("")
+
+        signatures = {_media_signature(item) for item in group}
+        shared_media = len(signatures) == 1
+        for idx, item in enumerate(group):
+            lines.append(f"<b>{item.start:%H:%M}</b>  {html.escape(item.title)}")
+            if not shared_media:
+                lines.extend(_media_lines(item.broadcasts, item.start))
+            if idx != len(group) - 1 and not shared_media:
+                lines.append("")
+        if shared_media:
+            lines.extend(_media_lines(first.broadcasts, first.start))
+    return lines
+
+
+def _format_athletics(items: list[DigestItem]) -> list[str]:
+    lines = ["🏃 <b>ATLETIKA</b>"]
+    current_comp: str | None = None
+    for item in sorted(items, key=lambda x: x.start):
+        if item.competition != current_comp:
+            if current_comp is not None:
+                lines.append("")
+            if item.competition:
+                lines.append(html.escape(item.competition))
+            current_comp = item.competition
+        lines.append("")
+        lines.append(f"<b>{item.start:%H:%M}</b>  {html.escape(item.title)}")
+        lines.extend(_media_lines(item.broadcasts, item.start))
     return lines
 
 
 def format_digest(items: list[DigestItem], *, day: date) -> str | None:
     if not items:
         return None
-
-    lines = ["📺 <b>SPORT V TV</b>", html.escape(_format_date(day)), ""]
-    current_sport: str | None = None
-    current_comp: str | None = None
-
-    labels = {
-        "hockey": "🏒 <b>HOKEJ</b>",
-        "biathlon": "🎯 <b>BIATLON</b>",
-        "athletics": "🏃 <b>ATLETIKA</b>",
-    }
-
+    by_sport: dict[str, list[DigestItem]] = defaultdict(list)
     for item in items:
-        if item.sport != current_sport:
-            if lines[-1] != "":
-                lines.append("")
-            lines.append(labels.get(item.sport, f"<b>{html.escape(item.sport.upper())}</b>"))
-            current_sport = item.sport
-            current_comp = None
+        by_sport[item.sport].append(item)
+    sports = sorted(
+        by_sport,
+        key=lambda sport: (min(i.start for i in by_sport[sport]), SPORT_PRIORITY.get(sport, 99)),
+    )
 
-        if item.competition and item.competition != current_comp:
-            lines.append(html.escape(item.competition))
-            current_comp = item.competition
-
-        if item.sport == "biathlon" and item.location:
-            place = item.location
-            if item.country:
-                place += f" ({item.country})"
-            lines.append(html.escape(place))
-
+    lines = ["📺 <b>SPORT V TV</b>", html.escape(_format_date(day))]
+    formatters = {"hockey": _format_hockey, "biathlon": _format_biathlon, "athletics": _format_athletics}
+    for sport in sports:
         lines.append("")
-        lines.append(f"<b>{item.start:%H:%M}</b>  {html.escape(item.title)}")
-        lines.extend(_media_lines(item.broadcasts, item.start))
-
+        lines.extend(formatters[sport](by_sport[sport]))
     return "\n".join(lines).strip()
 
 
 def build_today_digest(
-    db_path: str | Path = "data/sports_events.db",
-    *,
-    now: datetime | None = None,
+    db_path: str | Path = "data/sports_events.db", *, now: datetime | None = None,
 ) -> str | None:
     now_local = (now or datetime.now(PRAGUE)).astimezone(PRAGUE)
-    items = collect_today_items(db_path, now=now_local)
-    return format_digest(items, day=now_local.date())
+    return format_digest(collect_today_items(db_path, now=now_local), day=now_local.date())
