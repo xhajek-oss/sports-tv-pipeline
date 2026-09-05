@@ -10,6 +10,10 @@ on:
         required: false
         default: all
         type: string
+      simulate_down:
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   run:
@@ -67,7 +71,8 @@ jobs:
         if: inputs.mode != 'pr'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_HEALTH_CHAT_ID: ${{ secrets.TELEGRAM_HEALTH_CHAT_ID }}
+          HEALTH_SIMULATE_DOWN: ${{ inputs.simulate_down && '1' || '0' }}
         run: python runner.py --mode '${{ inputs.mode }}' --source '${{ inputs.source }}'
 
       - name: Save validation state
