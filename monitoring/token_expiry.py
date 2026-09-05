@@ -22,13 +22,21 @@ def days_until_expiry(expiry: date, *, today: date | None = None) -> int:
     return (expiry - local_today).days
 
 
+def _days_text(days: int) -> str:
+    if days == 1:
+        return "1 den"
+    if 2 <= days <= 4:
+        return f"{days} dny"
+    return f"{days} dní"
+
+
 def build_expiry_alert(expiry: date, days_left: int) -> str | None:
     formatted = expiry.strftime("%d.%m.%Y")
     if days_left < 0:
         overdue = abs(days_left)
         return (
             "🚨 GitHub token je po expiraci\n"
-            f"PAT pro cron-job.org expiroval před {overdue} dny.\n"
+            f"PAT pro cron-job.org expiroval před {_days_text(overdue)}.\n"
             f"Expirace: {formatted}\n"
             "Vytvoř nový PAT, nahraď ho na cron-job.org a aktualizuj secret CRON_PAT_EXPIRES_AT."
         )
@@ -43,7 +51,7 @@ def build_expiry_alert(expiry: date, days_left: int) -> str | None:
         )
     return (
         "⚠️ GitHub token brzy expiruje\n"
-        f"PAT pro cron-job.org vyprší za {days_left} dní.\n"
+        f"PAT pro cron-job.org vyprší za {_days_text(days_left)}.\n"
         f"Expirace: {formatted}\n"
         "Vytvoř nový PAT a nahraď ho na cron-job.org."
     )
