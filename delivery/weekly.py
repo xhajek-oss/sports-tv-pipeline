@@ -229,7 +229,7 @@ def format_weekly_report(
     for event in events:
         by_day[event.start.date()].append(event)
 
-    lines = [f"<b>{html.escape(_format_date(monday))} – {html.escape(_format_date(sunday))}</b>"]
+    lines = [f"{html.escape(_format_date(monday))} – {html.escape(_format_date(sunday))}"]
     for day in sorted(by_day):
         lines.append("")
         lines.append(f"<b>{html.escape(_format_date(day))}</b>")
