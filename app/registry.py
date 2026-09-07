@@ -8,7 +8,7 @@ from scrapers.diamondleague import DiamondLeagueScraper
 from scrapers.hcdynamo import HCDynamoScraper
 from scrapers.idnes import IdnesTVScraper
 from scrapers.iihf import IIHFScraper
-from scrapers.worldathletics import WorldAthleticsScraper
+from scrapers.worldathletics_cz import CzechWorldAthleticsScraper
 
 
 SourceKind = Literal["sports", "tv"]
@@ -27,7 +27,7 @@ SOURCES: dict[str, SourceSpec] = {
     "biathlonworld": SourceSpec("biathlonworld", "sports", BiathlonWorldScraper),
     "iihf": SourceSpec("iihf", "sports", IIHFScraper, allow_empty=True),
     "diamondleague": SourceSpec("diamondleague", "sports", DiamondLeagueScraper),
-    "worldathletics": SourceSpec("worldathletics", "sports", WorldAthleticsScraper),
+    "worldathletics": SourceSpec("worldathletics", "sports", CzechWorldAthleticsScraper),
     "idnes": SourceSpec("idnes", "tv", IdnesTVScraper),
 }
 
