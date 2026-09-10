@@ -69,6 +69,37 @@ def test_format_digest_uses_real_broadcast_time_and_media_types():
     assert "Dnes" not in text
 
 
+def test_each_tv_and_online_source_has_its_own_icon():
+    tv1 = broadcast(start="2026-09-05T17:45:00", channel="ČT2")
+    tv2 = broadcast(start="2026-09-05T19:00:00", channel="ČT sport")
+    online1 = broadcast(
+        start="2026-09-05T17:45:00",
+        channel="iVysílání",
+        distribution="online",
+    )
+    online2 = broadcast(
+        start="2026-09-05T18:00:00",
+        channel="Eurovision Sport",
+        distribution="online",
+    )
+    item = DigestItem(
+        key="event|1",
+        sport="hockey",
+        competition="Liga mistrů",
+        title="HC Dynamo Pardubice – Rögle BK (Švédsko)",
+        location=None,
+        country=None,
+        start=tv1.tv_start,
+        broadcasts=(tv1, tv2, online1, online2),
+    )
+
+    text = format_digest([item], day=date(2026, 9, 5))
+
+    assert text is not None
+    assert "📺 ČT2 • 📺 ČT sport od 19:00" in text
+    assert "💻 iVysílání • 💻 Eurovision Sport od 18:00" in text
+
+
 def test_biathlon_shared_channel_is_printed_once():
     b1 = broadcast(start="2026-12-05T11:30:00", channel="ČT sport")
     b2 = Broadcast(**{**b1.__dict__, "event_id": 2})
