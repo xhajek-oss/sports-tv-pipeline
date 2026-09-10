@@ -61,6 +61,15 @@ DISCIPLINE_GROUPS = {
     "javelin": (r"javelin", r"ostep"),
 }
 
+# Curated aliases for TV-guide team-name variants. These are intentionally
+# narrow so a typo/shortened club name can match without weakening the hard
+# team-conflict guard for unrelated hockey games.
+HOCKEY_TEAM_ALIASES = {
+    "salpa": "saipa",
+    "saipa lappeenranta": "saipa",
+    "kookoo kouvola": "kookoo",
+}
+
 
 def _norm(value: Optional[str]) -> str:
     if not value:
@@ -135,7 +144,8 @@ def _hockey_team(value: str) -> str:
         words.pop(0)
     if words and words[-1] in {"hc", "bk", "hk"}:
         words.pop()
-    return " ".join(words)
+    normalized = " ".join(words)
+    return HOCKEY_TEAM_ALIASES.get(normalized, normalized)
 
 
 def _hockey_matchup(value: Optional[str]) -> Optional[frozenset[str]]:
