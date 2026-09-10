@@ -353,9 +353,9 @@ def _media_lines(broadcasts: tuple[Broadcast, ...], main_start: datetime) -> lis
         grouped[kind].append(f"{html.escape(channel)}{suffix}")
     lines: list[str] = []
     if grouped["tv"]:
-        lines.append("📺 " + " • ".join(grouped["tv"]))
+        lines.append(" • ".join(f"📺 {entry}" for entry in grouped["tv"]))
     if grouped["online"]:
-        lines.append("💻 " + " • ".join(grouped["online"]))
+        lines.append(" • ".join(f"💻 {entry}" for entry in grouped["online"]))
     return lines
 
 
