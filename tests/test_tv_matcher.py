@@ -114,3 +114,55 @@ def test_specific_hockey_broadcast_with_same_teams_matches_even_reversed():
     assert result.status == "match"
     assert result.score >= 70
     assert "team_matchup" in result.reasons
+
+
+def test_chl_saipa_idnes_salpa_typo_matches():
+    event = row(
+        sport="hockey",
+        competition="Liga Mistrů",
+        name="SaiPa Lappeenranta - HC Dynamo Pardubice",
+        location="Lappeenranta",
+        country="Finland",
+        start_datetime="2026-09-10T15:30:00+00:00",
+    )
+    tv = row(
+        id=2,
+        sport="hockey",
+        competition="CHL",
+        name="unused",
+        channel="Sport1",
+        title="Lední hokej: Salpa - Dynamo Pardubice",
+        description="Přímý přenos utkání, CHL, základní část",
+        start_datetime="2026-09-10T15:30:00+00:00",
+        end_datetime="2026-09-10T18:00:00+00:00",
+    )
+    result = score_pair(event, tv)
+    assert result.status == "match"
+    assert result.score >= 70
+    assert "team_matchup" in result.reasons
+
+
+def test_chl_kookoo_city_suffix_matches_short_tv_name():
+    event = row(
+        sport="hockey",
+        competition="Liga Mistrů",
+        name="KooKoo Kouvola - HC Dynamo Pardubice",
+        location="Kouvola",
+        country="Finland",
+        start_datetime="2026-09-12T14:00:00+00:00",
+    )
+    tv = row(
+        id=2,
+        sport="hockey",
+        competition="CHL",
+        name="unused",
+        channel="Sport2",
+        title="Lední hokej: KooKoo - Dynamo Pardubice",
+        description="Přímý přenos utkání, CHL, základní část",
+        start_datetime="2026-09-12T14:00:00+00:00",
+        end_datetime="2026-09-12T16:30:00+00:00",
+    )
+    result = score_pair(event, tv)
+    assert result.status == "match"
+    assert result.score >= 70
+    assert "team_matchup" in result.reasons
