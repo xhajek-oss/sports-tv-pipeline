@@ -61,15 +61,6 @@ DISCIPLINE_GROUPS = {
     "javelin": (r"javelin", r"ostep"),
 }
 
-# Curated aliases for TV-guide team-name variants. These are intentionally
-# narrow so a typo/shortened club name can match without weakening the hard
-# team-conflict guard for unrelated hockey games.
-HOCKEY_TEAM_ALIASES = {
-    "salpa": "saipa",
-    "saipa lappeenranta": "saipa",
-    "kookoo kouvola": "kookoo",
-}
-
 
 def _norm(value: Optional[str]) -> str:
     if not value:
@@ -133,7 +124,7 @@ def _round(text: str) -> Optional[str]:
 
 
 def _hockey_team(value: str) -> str:
-    """Normalize a team name while retaining its identifying words."""
+    """Normalize a team name while retaining identifying words."""
     team = _norm(value)
     words = team.split()
     if words[:2] == ["ledni", "hokej"]:
@@ -144,11 +135,71 @@ def _hockey_team(value: str) -> str:
         words.pop(0)
     if words and words[-1] in {"hc", "bk", "hk"}:
         words.pop()
-    normalized = " ".join(words)
-    return HOCKEY_TEAM_ALIASES.get(normalized, normalized)
+    return " ".join(words)
 
 
-def _hockey_matchup(value: Optional[str]) -> Optional[frozenset[str]]:
+def _one_edit_apart(left: str, right: str) -> bool:
+    """Return True when two sufficiently long tokens differ by one edit at most."""
+    if left == right:
+        return True
+    if min(len(left), len(right)) < 5 or abs(len(left) - len(right)) > 1:
+        return False
+    if len(left) == len(right):
+        return sum(a != b for a, b in zip(left, right)) == 1
+    short, long = (left, right) if len(left) < len(right) else (right, left)
+    i = j = differences = 0
+    while i < len(short) and j < len(long):
+        if short[i] == long[j]:
+            i += 1
+            j += 1
+            continue
+        differences += 1
+        if differences > 1:
+            return False
+        j += 1
+    return True
+
+
+def _hockey_team_equivalent(left: str, right: str) -> bool:
+    """Compare team names without relying on a hard-coded club alias table.
+
+    TV guides commonly shorten a club by dropping a city/region suffix, and they
+    occasionally contain a one-character typo. Exact matches remain preferred,
+    while fuzzy acceptance is intentionally narrow: both sides of the matchup must
+    independently match, and only distinctive tokens of length >= 5 get typo
+    tolerance.
+    """
+    left = _hockey_team(left)
+    right = _hockey_team(right)
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+
+    left_words = left.split()
+    right_words = right.split()
+
+    # A TV guide may omit a location or secondary club-name suffix, e.g.
+    # "KooKoo" vs "KooKoo Kouvola". Requiring the shared first token to be
+    # distinctive avoids matching generic city suffixes such as "Praha" alone.
+    if left_words[0] == right_words[0] and len(left_words[0]) >= 5:
+        return True
+
+    # Multi-word names are also allowed to be a complete leading/trailing phrase
+    # of the longer name. This covers common forms such as a dropped sponsor/name
+    # component without accepting a single generic token from the middle.
+    shorter, longer = (left_words, right_words) if len(left_words) <= len(right_words) else (right_words, left_words)
+    if len(shorter) >= 2:
+        if longer[: len(shorter)] == shorter or longer[-len(shorter) :] == shorter:
+            return True
+
+    # One-character typo tolerance is applied only to the leading identifying token.
+    # This handles OCR/editorial mistakes such as SaiPa/Salpa without making the
+    # whole team string broadly fuzzy.
+    return _one_edit_apart(left_words[0], right_words[0])
+
+
+def _hockey_matchup(value: Optional[str]) -> Optional[tuple[str, str]]:
     """Return two normalized teams for titles shaped like 'Team A - Team B'."""
     if not value:
         return None
@@ -156,10 +207,17 @@ def _hockey_matchup(value: Optional[str]) -> Optional[frozenset[str]]:
     match = re.search(r"(?:^|:\s*)(.+?)\s+-\s+(.+?)(?:\s*\([^)]*\))?$", clean)
     if not match:
         return None
-    teams = frozenset(_hockey_team(part) for part in match.groups())
-    if len(teams) != 2 or "" in teams:
+    teams = tuple(_hockey_team(part) for part in match.groups())
+    if len(teams) != 2 or not all(teams) or teams[0] == teams[1]:
         return None
     return teams
+
+
+def _hockey_matchups_equivalent(left: tuple[str, str], right: tuple[str, str]) -> bool:
+    """Require both teams to correspond, allowing home/away order to be reversed."""
+    direct = _hockey_team_equivalent(left[0], right[0]) and _hockey_team_equivalent(left[1], right[1])
+    reversed_order = _hockey_team_equivalent(left[0], right[1]) and _hockey_team_equivalent(left[1], right[0])
+    return direct or reversed_order
 
 
 def _event_text(row: sqlite3.Row) -> str:
@@ -194,7 +252,7 @@ def score_pair(event: sqlite3.Row, tv: sqlite3.Row) -> MatchCandidate:
         event_matchup = _hockey_matchup(event["name"])
         tv_matchup = _hockey_matchup(tv["title"])
         if event_matchup and tv_matchup:
-            if event_matchup != tv_matchup:
+            if not _hockey_matchups_equivalent(event_matchup, tv_matchup):
                 return MatchCandidate(event["id"], tv["id"], 0, "no_match", ("team_conflict",))
             score += 15
             reasons.append("team_matchup")
