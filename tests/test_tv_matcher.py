@@ -114,3 +114,125 @@ def test_specific_hockey_broadcast_with_same_teams_matches_even_reversed():
     assert result.status == "match"
     assert result.score >= 70
     assert "team_matchup" in result.reasons
+
+
+def test_chl_saipa_idnes_salpa_typo_matches():
+    event = row(
+        sport="hockey",
+        competition="Liga Mistrů",
+        name="SaiPa Lappeenranta - HC Dynamo Pardubice",
+        location="Lappeenranta",
+        country="Finland",
+        start_datetime="2026-09-10T15:30:00+00:00",
+    )
+    tv = row(
+        id=2,
+        sport="hockey",
+        competition="CHL",
+        name="unused",
+        channel="Sport1",
+        title="Lední hokej: Salpa - Dynamo Pardubice",
+        description="Přímý přenos utkání, CHL, základní část",
+        start_datetime="2026-09-10T15:30:00+00:00",
+        end_datetime="2026-09-10T18:00:00+00:00",
+    )
+    result = score_pair(event, tv)
+    assert result.status == "match"
+    assert result.score >= 70
+    assert "team_matchup" in result.reasons
+
+
+def test_chl_kookoo_city_suffix_matches_short_tv_name():
+    event = row(
+        sport="hockey",
+        competition="Liga Mistrů",
+        name="KooKoo Kouvola - HC Dynamo Pardubice",
+        location="Kouvola",
+        country="Finland",
+        start_datetime="2026-09-12T14:00:00+00:00",
+    )
+    tv = row(
+        id=2,
+        sport="hockey",
+        competition="CHL",
+        name="unused",
+        channel="Sport2",
+        title="Lední hokej: KooKoo - Dynamo Pardubice",
+        description="Přímý přenos utkání, CHL, základní část",
+        start_datetime="2026-09-12T14:00:00+00:00",
+        end_datetime="2026-09-12T16:30:00+00:00",
+    )
+    result = score_pair(event, tv)
+    assert result.status == "match"
+    assert result.score >= 70
+    assert "team_matchup" in result.reasons
+
+
+def test_generic_city_suffix_shortening_matches_without_alias_table():
+    event = row(
+        sport="hockey",
+        competition="CHL",
+        name="Tappara Tampere - Fribourg Gotteron",
+        start_datetime="2026-10-01T16:00:00+00:00",
+    )
+    tv = row(
+        id=2,
+        sport="hockey",
+        competition="CHL",
+        name="unused",
+        channel="Sport2",
+        title="Hokej: Tappara - Fribourg Gotteron",
+        description="CHL",
+        start_datetime="2026-10-01T16:00:00+00:00",
+        end_datetime="2026-10-01T18:30:00+00:00",
+    )
+    result = score_pair(event, tv)
+    assert result.status == "match"
+    assert "team_matchup" in result.reasons
+
+
+def test_generic_single_character_team_typo_matches():
+    event = row(
+        sport="hockey",
+        competition="CHL",
+        name="Ilves Tampere - Dynamo Pardubice",
+        start_datetime="2026-10-02T16:00:00+00:00",
+    )
+    tv = row(
+        id=2,
+        sport="hockey",
+        competition="CHL",
+        name="unused",
+        channel="Sport1",
+        title="Hokej: llves - Dynamo Pardubice",
+        description="CHL",
+        start_datetime="2026-10-02T16:00:00+00:00",
+        end_datetime="2026-10-02T18:30:00+00:00",
+    )
+    result = score_pair(event, tv)
+    assert result.status == "match"
+    assert "team_matchup" in result.reasons
+
+
+def test_fuzzy_matching_does_not_confuse_different_prague_clubs():
+    event = row(
+        sport="hockey",
+        competition="ELH",
+        name="HC Sparta Praha - HC Dynamo Pardubice",
+        start_datetime="2026-10-03T16:00:00+00:00",
+    )
+    tv = row(
+        id=2,
+        sport="hockey",
+        competition="ELH",
+        name="unused",
+        channel="ČT sport",
+        title="Hokej: HC Slavia Praha - HC Dynamo Pardubice",
+        description="ELH",
+        start_datetime="2026-10-03T16:00:00+00:00",
+        end_datetime="2026-10-03T18:30:00+00:00",
+    )
+    result = score_pair(event, tv)
+    assert result.status == "no_match"
+    assert result.score == 0
+    assert result.reasons == ("team_conflict",)
