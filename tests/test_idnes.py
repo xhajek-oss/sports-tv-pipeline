@@ -42,6 +42,7 @@ def test_parses_program_and_converts_prague_to_utc(tmp_path):
     assert row.channel_slug == "ct-4-sport"
     assert row.start_local.isoformat() == "2026-09-05T20:30:00+02:00"
     assert row.end_local.isoformat() == "2026-09-05T22:05:00+02:00"
+    assert row.description == "Sport skryté titulky, High Definition"
 
 
 def test_parses_current_idnes_sport2_slug_for_chl(tmp_path):
@@ -62,7 +63,40 @@ def test_parses_current_idnes_sport2_slug_for_chl(tmp_path):
     assert row.channel_slug == "sport2"
     assert row.title == "Lední hokej: Dynamo Pardubice - Rögle"
     assert row.start_local.isoformat() == "2026-09-05T16:45:00+02:00"
-    assert IdnesTVScraper._is_query_relevant("hokej", row.title)
+    assert IdnesTVScraper._is_query_relevant("hokej", row.title, row.description)
+
+
+def test_preserves_generic_program_description_with_fixture(tmp_path):
+    scraper = make_scraper(tmp_path, datetime(2026, 9, 18, 8, tzinfo=timezone.utc))
+    html = """
+    <div class="result-item">
+      <div class="when">16:50 - 19:30</div>
+      <div class="date">Neděle 20.9.</div>
+      <a href="/oneplaysport-1/ne-16.50-tipsport-extraliga.id108423906">
+        Tipsport extraliga
+      </a>
+      <div class="description">HC Dynamo Pardubice - HC Energie Karlovy Vary</div>
+      <div class="meta">Přímý přenos</div>
+    </div>
+    """
+    row = scraper.parse_search_html(html)[0]
+    assert "HC Dynamo Pardubice - HC Energie Karlovy Vary" in row.description
+    assert IdnesTVScraper._is_query_relevant("hokej", row.title, row.description)
+
+
+def test_relevance_can_come_only_from_description(tmp_path):
+    scraper = make_scraper(tmp_path, datetime(2026, 9, 18, 8, tzinfo=timezone.utc))
+    html = """
+    <div class="result-item">
+      <div class="when">16:50 - 19:30</div>
+      <div class="date">Neděle 20.9.</div>
+      <a href="/oneplaysport-1/ne-16.50-sportovni-prenos.id108423907">Sportovní přenos</a>
+      <div>Hokej: HC Dynamo Pardubice - HC Energie Karlovy Vary</div>
+    </div>
+    """
+    row = scraper.parse_search_html(html)[0]
+    assert not IdnesTVScraper._is_query_relevant("hokej", row.title)
+    assert IdnesTVScraper._is_query_relevant("hokej", row.title, row.description)
 
 
 def test_end_time_after_midnight_moves_to_next_day(tmp_path):
@@ -126,3 +160,4 @@ def test_parse_search_html_real_idnes_sibling_layout(tmp_path):
     assert items[0].source_id == "107986263"
     assert items[0].start_local.isoformat() == "2026-09-05T20:30:00+02:00"
     assert items[0].end_local.isoformat() == "2026-09-05T22:05:00+02:00"
+    assert "Sport skryté titulky" in items[0].description
