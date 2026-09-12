@@ -20,7 +20,7 @@ idnes:
     - oneplaysport-2
     - oneplaysport-3
     - oneplaysport-4
-    - premier-sport
+    - premier-sport-1
     - premier-sport-2
     - premier-sport-3
     - sport1
@@ -52,7 +52,7 @@ idnes:
     oneplaysport-2: "Oneplay Sport 2"
     oneplaysport-3: "Oneplay Sport 3"
     oneplaysport-4: "Oneplay Sport 4"
-    premier-sport: "Premier Sport 1"
+    premier-sport-1: "Premier Sport 1"
     premier-sport-2: "Premier Sport 2"
     premier-sport-3: "Premier Sport 3"
     # Current iDNES programme detail URLs use sport1/sport2. Keep the older
