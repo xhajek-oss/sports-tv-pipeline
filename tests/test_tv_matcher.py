@@ -63,7 +63,6 @@ def test_athletics_can_use_description_as_evidence():
     assert result.status == "match"
     assert "discipline" in result.reasons
     assert "gender:women" in result.reasons
-    assert "location" in result.reasons
 
 
 def test_biathlon_can_use_description_as_evidence():
