@@ -96,7 +96,6 @@ class IdnesTVScraper:
             )
             if response is not None and response.status >= 400:
                 raise RuntimeError(f"iDNES HTTP {response.status} for {url}")
-
             try:
                 page.wait_for_selector('a[href*=".id"]', timeout=min(self.timeout, 10) * 1000)
             except Exception:
@@ -116,7 +115,6 @@ class IdnesTVScraper:
     def _is_query_relevant(cls, query: str, title: str, description: Optional[str] = None) -> bool:
         q = cls._normalize_text(query)
         t = cls._normalize_text(" ".join(part for part in (title, description or "") if part))
-
         aliases = {
             "atletika": (
                 "atletika", "athletics", "diamantova liga",
@@ -143,7 +141,6 @@ class IdnesTVScraper:
         return match.groupdict() if match else None
 
     def _resolve_date(self, day: int, month: int) -> date:
-        """Resolve iDNES day/month to the nearest plausible date in its ~14-day horizon."""
         candidates = []
         for year in (self.now.year - 1, self.now.year, self.now.year + 1):
             try:
@@ -152,7 +149,6 @@ class IdnesTVScraper:
                 continue
         if not candidates:
             raise ValueError(f"Invalid iDNES date {day}.{month}.")
-
         today = self.now.date()
         plausible = [d for d in candidates if today - timedelta(days=2) <= d <= today + timedelta(days=31)]
         if plausible:
@@ -180,7 +176,6 @@ class IdnesTVScraper:
 
     @staticmethod
     def _result_container(anchor: Tag) -> Tag:
-        """Return the smallest ancestor that contains this programme's date/time metadata."""
         for parent in anchor.parents:
             if not isinstance(parent, Tag):
                 continue
@@ -201,7 +196,9 @@ class IdnesTVScraper:
             kept.append(part)
         if not kept:
             return None
-        description = " ".join(kept)
+        # Keep DOM text blocks separated so downstream evidence extraction can
+        # distinguish a fixture from metadata such as "Přímý přenos".
+        description = " ; ".join(kept)
         return description[:1000] if description else None
 
     @staticmethod
@@ -218,26 +215,21 @@ class IdnesTVScraper:
         soup = BeautifulSoup(html, "html.parser")
         parsed: list[ParsedSchedule] = []
         seen: set[tuple[str, datetime, str]] = set()
-
         for anchor in soup.find_all("a", href=True):
             href = urljoin(page_url, anchor["href"])
             source_id = self._source_id(href)
             parts = self._detail_parts(href)
             if not source_id or not parts:
                 continue
-
             channel_slug = parts["channel"].lower()
             if channel_slug not in self.channels:
                 continue
-
             title = " ".join(anchor.stripped_strings).strip()
             if not title:
                 continue
-
             time_match, date_match = self._schedule_metadata_before(anchor)
             if not time_match or not date_match:
                 continue
-
             local_date = self._resolve_date(int(date_match.group("day")), int(date_match.group("month")))
             start_t = time(int(time_match.group("sh")), int(time_match.group("sm")))
             end_t = time(int(time_match.group("eh")), int(time_match.group("em")))
@@ -245,11 +237,9 @@ class IdnesTVScraper:
             end_local = datetime.combine(local_date, end_t, self.tz)
             if end_local <= start_local:
                 end_local += timedelta(days=1)
-
             url_start = (int(parts["hour"]), int(parts["minute"]))
             if (start_local.hour, start_local.minute) != url_start:
                 continue
-
             key = (source_id, start_local, channel_slug)
             if key in seen:
                 continue
@@ -299,15 +289,11 @@ class IdnesTVScraper:
                 body_text = " ".join(soup.stripped_strings)
                 is_tv_search_page = (
                     "tv program idnes.cz" in title_text.casefold()
-                    and (
-                        "výsledky vyhledávání" in body_text.casefold()
-                        or "/hledani" in url
-                    )
+                    and ("výsledky vyhledávání" in body_text.casefold() or "/hledani" in url)
                 )
                 if is_tv_search_page:
                     print(f"[IDNES] query={query!r} no scheduled programmes -> OK")
                     break
-
                 raise RuntimeError(
                     "iDNES returned HTML without programme detail links "
                     f"for query {query!r}; title={title_text!r}, html_len={len(html)}"
@@ -330,7 +316,6 @@ class IdnesTVScraper:
         programs: list[TVProgram] = []
         seen_ids: set[tuple[str, datetime, str]] = set()
         seen_broadcasts: set[tuple[str, str, datetime]] = set()
-
         try:
             for query in self.search_queries:
                 for item in self._scrape_query(query):
@@ -338,11 +323,7 @@ class IdnesTVScraper:
                     start_utc = item.start_local.astimezone(timezone.utc)
                     end_utc = item.end_local.astimezone(timezone.utc)
                     id_key = (item.source_id, start_utc, channel)
-                    broadcast_key = (
-                        channel,
-                        self._normalize_text(item.title),
-                        start_utc,
-                    )
+                    broadcast_key = (channel, self._normalize_text(item.title), start_utc)
                     if id_key in seen_ids or broadcast_key in seen_broadcasts:
                         continue
                     seen_ids.add(id_key)
@@ -364,6 +345,5 @@ class IdnesTVScraper:
                     )
         finally:
             self._close_browser()
-
         programs.sort(key=lambda p: (p.start_datetime, p.channel, p.title))
         return programs
