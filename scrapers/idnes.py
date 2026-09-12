@@ -97,9 +97,6 @@ class IdnesTVScraper:
             if response is not None and response.status >= 400:
                 raise RuntimeError(f"iDNES HTTP {response.status} for {url}")
 
-            # Discovery proved that programme links are present in the rendered DOM.
-            # Do not require them here: a genuinely empty search page is still valid and
-            # is diagnosed by _scrape_query below.
             try:
                 page.wait_for_selector('a[href*=".id"]', timeout=min(self.timeout, 10) * 1000)
             except Exception:
@@ -116,9 +113,9 @@ class IdnesTVScraper:
         return " ".join(value.split())
 
     @classmethod
-    def _is_query_relevant(cls, query: str, title: str) -> bool:
+    def _is_query_relevant(cls, query: str, title: str, description: Optional[str] = None) -> bool:
         q = cls._normalize_text(query)
-        t = cls._normalize_text(title)
+        t = cls._normalize_text(" ".join(part for part in (title, description or "") if part))
 
         aliases = {
             "atletika": (
@@ -142,7 +139,8 @@ class IdnesTVScraper:
 
     @staticmethod
     def _detail_parts(url: str) -> Optional[dict[str, str]]:
-        return DETAIL_PATH_RE.match(urlparse(url).path).groupdict() if DETAIL_PATH_RE.match(urlparse(url).path) else None
+        match = DETAIL_PATH_RE.match(urlparse(url).path)
+        return match.groupdict() if match else None
 
     def _resolve_date(self, day: int, month: int) -> date:
         """Resolve iDNES day/month to the nearest plausible date in its ~14-day horizon."""
@@ -156,7 +154,6 @@ class IdnesTVScraper:
             raise ValueError(f"Invalid iDNES date {day}.{month}.")
 
         today = self.now.date()
-        # Search pages can briefly retain same-day/past entries; allow a small past window.
         plausible = [d for d in candidates if today - timedelta(days=2) <= d <= today + timedelta(days=31)]
         if plausible:
             return min(plausible, key=lambda d: abs((d - today).days))
@@ -164,13 +161,6 @@ class IdnesTVScraper:
 
     @staticmethod
     def _schedule_metadata_before(anchor: Tag) -> tuple[Optional[re.Match[str]], Optional[re.Match[str]]]:
-        """Find the nearest time range and date rendered immediately before a result title.
-
-        iDNES search results are laid out in document order as:
-        ``time range -> date -> title link -> metadata``.  The time/date are siblings
-        (or cousins), not descendants of the title link's smallest container, so an
-        ancestor-only lookup silently drops every result.
-        """
         time_match = None
         date_match = None
         inspected = 0
@@ -189,20 +179,28 @@ class IdnesTVScraper:
         return time_match, date_match
 
     @staticmethod
+    def _result_container(anchor: Tag) -> Tag:
+        """Return the smallest ancestor that contains this programme's date/time metadata."""
+        for parent in anchor.parents:
+            if not isinstance(parent, Tag):
+                continue
+            text = " ".join(parent.stripped_strings)
+            if TIME_RANGE_RE.search(text) and DATE_RE.search(text):
+                return parent
+        return anchor.parent if isinstance(anchor.parent, Tag) else anchor
+
+    @staticmethod
     def _description(container: Tag, title: str) -> Optional[str]:
         parts = [s.strip() for s in container.stripped_strings if s.strip()]
-        ignored = {title}
         kept = []
         for part in parts:
-            if part in ignored or TIME_RANGE_RE.fullmatch(part) or DATE_RE.fullmatch(part):
+            if part == title or TIME_RANGE_RE.fullmatch(part) or DATE_RE.fullmatch(part):
                 continue
             if DATE_RE.search(part) or TIME_RANGE_RE.search(part):
-                # Usually a combined header; it is schedule metadata, not description.
                 continue
             kept.append(part)
         if not kept:
             return None
-        # Avoid huge text when an ancestor was broader than expected.
         description = " ".join(kept)
         return description[:1000] if description else None
 
@@ -248,8 +246,6 @@ class IdnesTVScraper:
             if end_local <= start_local:
                 end_local += timedelta(days=1)
 
-            # URL itself contains the advertised start time. A mismatch means we likely
-            # climbed into a container belonging to a neighboring programme entry.
             url_start = (int(parts["hour"]), int(parts["minute"]))
             if (start_local.hour, start_local.minute) != url_start:
                 continue
@@ -258,12 +254,14 @@ class IdnesTVScraper:
             if key in seen:
                 continue
             seen.add(key)
+            container = self._result_container(anchor)
+            description = self._description(container, title)
             parsed.append(
                 ParsedSchedule(
                     source_id=source_id,
                     channel_slug=channel_slug,
                     title=title,
-                    description=None,
+                    description=description,
                     start_local=start_local,
                     end_local=end_local,
                     source_url=href,
@@ -299,12 +297,6 @@ class IdnesTVScraper:
                 title = soup.title
                 title_text = title.get_text(" ", strip=True) if title else "<no-title>"
                 body_text = " ".join(soup.stripped_strings)
-
-                # A valid iDNES search page can legitimately contain zero results
-                # (for example when a sport has no broadcasts in the current
-                # programme horizon).  The earlier HTTP fallback failure instead
-                # returned the generic iDNES homepage, whose title did not identify
-                # the TV-program search page.
                 is_tv_search_page = (
                     "tv program idnes.cz" in title_text.casefold()
                     and (
@@ -320,7 +312,10 @@ class IdnesTVScraper:
                     "iDNES returned HTML without programme detail links "
                     f"for query {query!r}; title={title_text!r}, html_len={len(html)}"
                 )
-            relevant = [item for item in parsed if self._is_query_relevant(query, item.title)]
+            relevant = [
+                item for item in parsed
+                if self._is_query_relevant(query, item.title, item.description)
+            ]
             filtered = len(parsed) - len(relevant)
             if filtered:
                 print(
