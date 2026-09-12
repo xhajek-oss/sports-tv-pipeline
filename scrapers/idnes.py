@@ -54,6 +54,7 @@ class IdnesTVScraper:
         self.tz_name = config.get("timezone", "Europe/Prague")
         self.tz = ZoneInfo(self.tz_name)
         self.channels: dict[str, str] = config["channels"]
+        self.crawl_channels: list[str] = config.get("crawl_channels", [])
         self.search_queries: list[str] = config.get("search_queries", [])
         self.max_pages_per_query = int(config.get("max_pages_per_query", 5))
         self.timeout = timeout
@@ -130,6 +131,12 @@ class IdnesTVScraper:
         terms = aliases.get(q, (q,))
         return any(cls._normalize_text(term) in t for term in terms)
 
+    def _is_sport_relevant(self, item: ParsedSchedule) -> bool:
+        return any(
+            self._is_query_relevant(query, item.title, item.description)
+            for query in self.search_queries
+        )
+
     @staticmethod
     def _source_id(url: str) -> Optional[str]:
         match = DETAIL_ID_RE.search(url)
@@ -196,8 +203,6 @@ class IdnesTVScraper:
             kept.append(part)
         if not kept:
             return None
-        # Keep DOM text blocks separated so downstream evidence extraction can
-        # distinguish a fixture from metadata such as "Přímý přenos".
         description = " ; ".join(kept)
         return description[:1000] if description else None
 
@@ -268,6 +273,23 @@ class IdnesTVScraper:
                 return urljoin(current_url, anchor["href"])
         return None
 
+    def _scrape_channel(self, channel_slug: str) -> Iterable[ParsedSchedule]:
+        url = urljoin(BASE_URL, channel_slug)
+        html = self._fetch_html(url)
+        detail_links = self._detail_link_count(html, url)
+        parsed = self.parse_search_html(html, url)
+        relevant = [item for item in parsed if self._is_sport_relevant(item)]
+        print(
+            f"[IDNES] channel={channel_slug!r} page={url} html={len(html)} "
+            f"detail_links={detail_links} parsed={len(parsed)} kept={len(relevant)}"
+        )
+        if detail_links == 0:
+            raise RuntimeError(
+                "iDNES returned channel HTML without programme detail links "
+                f"for channel {channel_slug!r}; html_len={len(html)}"
+            )
+        yield from relevant
+
     def _scrape_query(self, query: str) -> Iterable[ParsedSchedule]:
         url: Optional[str] = SEARCH_URL.format(query=quote_plus(query))
         visited: set[str] = set()
@@ -316,33 +338,46 @@ class IdnesTVScraper:
         programs: list[TVProgram] = []
         seen_ids: set[tuple[str, datetime, str]] = set()
         seen_broadcasts: set[tuple[str, str, datetime]] = set()
+
+        def append_item(item: ParsedSchedule) -> None:
+            channel = self.channels[item.channel_slug]
+            start_utc = item.start_local.astimezone(timezone.utc)
+            end_utc = item.end_local.astimezone(timezone.utc)
+            id_key = (item.source_id, start_utc, channel)
+            broadcast_key = (channel, self._normalize_text(item.title), start_utc)
+            if id_key in seen_ids or broadcast_key in seen_broadcasts:
+                return
+            seen_ids.add(id_key)
+            seen_broadcasts.add(broadcast_key)
+            programs.append(
+                TVProgram(
+                    source=self.source,
+                    source_id=item.source_id,
+                    channel=channel,
+                    title=item.title,
+                    description=item.description,
+                    start_datetime=start_utc,
+                    end_datetime=end_utc,
+                    source_url=item.source_url,
+                    discovered_at=discovered_at,
+                    timezone=self.tz_name,
+                    distribution="tv",
+                )
+            )
+
         try:
+            # Primary discovery: concrete channel schedules. This avoids losing
+            # broadcasts because an iDNES search result is beyond pagination or
+            # has a generic title such as "Tipsport extraliga".
+            for channel_slug in self.crawl_channels:
+                for item in self._scrape_channel(channel_slug):
+                    append_item(item)
+
+            # Keep search crawling as an additive compatibility fallback. The
+            # dedupe keys prevent the same broadcast from being stored twice.
             for query in self.search_queries:
                 for item in self._scrape_query(query):
-                    channel = self.channels[item.channel_slug]
-                    start_utc = item.start_local.astimezone(timezone.utc)
-                    end_utc = item.end_local.astimezone(timezone.utc)
-                    id_key = (item.source_id, start_utc, channel)
-                    broadcast_key = (channel, self._normalize_text(item.title), start_utc)
-                    if id_key in seen_ids or broadcast_key in seen_broadcasts:
-                        continue
-                    seen_ids.add(id_key)
-                    seen_broadcasts.add(broadcast_key)
-                    programs.append(
-                        TVProgram(
-                            source=self.source,
-                            source_id=item.source_id,
-                            channel=channel,
-                            title=item.title,
-                            description=item.description,
-                            start_datetime=start_utc,
-                            end_datetime=end_utc,
-                            source_url=item.source_url,
-                            discovered_at=discovered_at,
-                            timezone=self.tz_name,
-                            distribution="tv",
-                        )
-                    )
+                    append_item(item)
         finally:
             self._close_browser()
         programs.sort(key=lambda p: (p.start_datetime, p.channel, p.title))
