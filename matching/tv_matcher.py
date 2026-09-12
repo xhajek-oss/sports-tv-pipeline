@@ -23,6 +23,16 @@ class MatchCandidate:
     reasons: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class TVEvidence:
+    text: str
+    sport: Optional[str]
+    competition: Optional[str]
+    disciplines: frozenset[str]
+    gender: Optional[str]
+    round: Optional[str]
+
+
 ATHLETICS_TERMS = (
     "atletika", "athletics", "diamond league", "diamantova liga",
     "world athletics", "mcr v atletice", "beh: atletika",
@@ -40,7 +50,7 @@ COMPETITION_GROUPS = {
         "ultimate championship",
     ),
     "iihf": ("iihf", "mistrovstvi sveta", "world championship"),
-    "extraliga": ("elh", "extraliga"),
+    "extraliga": ("elh", "extraliga", "tipsport extraliga"),
 }
 
 DISCIPLINE_GROUPS = {
@@ -59,6 +69,11 @@ DISCIPLINE_GROUPS = {
     "shot_put": (r"shot put", r"koule"),
     "discus": (r"discus", r"disk"),
     "javelin": (r"javelin", r"ostep"),
+    "sprint": (r"\bsprint\b",),
+    "pursuit": (r"\bpursuit\b", r"stihac"),
+    "mass_start": (r"mass start", r"hromad"),
+    "individual": (r"\bindividual\b", r"vytrval"),
+    "relay": (r"\brelay\b", r"stafet"),
 }
 
 
@@ -108,7 +123,7 @@ def _disciplines(text: str) -> set[str]:
 
 def _gender(text: str) -> Optional[str]:
     words = set(text.split())
-    if words & {"women", "woman", "zen", "zeny", "zen"}:
+    if words & {"women", "woman", "zen", "zeny"}:
         return "women"
     if words & {"men", "man", "muzi", "muzu", "muz"}:
         return "men"
@@ -161,14 +176,6 @@ def _one_edit_apart(left: str, right: str) -> bool:
 
 
 def _hockey_team_equivalent(left: str, right: str) -> bool:
-    """Compare team names without relying on a hard-coded club alias table.
-
-    TV guides commonly shorten a club by dropping a city/region suffix, and they
-    occasionally contain a one-character typo. Exact matches remain preferred,
-    while fuzzy acceptance is intentionally narrow: both sides of the matchup must
-    independently match, and only distinctive tokens of length >= 5 get typo
-    tolerance.
-    """
     left = _hockey_team(left)
     right = _hockey_team(right)
     if not left or not right:
@@ -178,33 +185,28 @@ def _hockey_team_equivalent(left: str, right: str) -> bool:
 
     left_words = left.split()
     right_words = right.split()
-
-    # A TV guide may omit a location or secondary club-name suffix, e.g.
-    # "KooKoo" vs "KooKoo Kouvola". Requiring the shared first token to be
-    # distinctive avoids matching generic city suffixes such as "Praha" alone.
     if left_words[0] == right_words[0] and len(left_words[0]) >= 5:
         return True
 
-    # Multi-word names are also allowed to be a complete leading/trailing phrase
-    # of the longer name. This covers common forms such as a dropped sponsor/name
-    # component without accepting a single generic token from the middle.
-    shorter, longer = (left_words, right_words) if len(left_words) <= len(right_words) else (right_words, left_words)
+    shorter, longer = (
+        (left_words, right_words)
+        if len(left_words) <= len(right_words)
+        else (right_words, left_words)
+    )
     if len(shorter) >= 2:
         if longer[: len(shorter)] == shorter or longer[-len(shorter) :] == shorter:
             return True
 
-    # One-character typo tolerance is applied only to the leading identifying token.
-    # This handles OCR/editorial mistakes such as SaiPa/Salpa without making the
-    # whole team string broadly fuzzy.
     return _one_edit_apart(left_words[0], right_words[0])
 
 
 def _hockey_matchup(value: Optional[str]) -> Optional[tuple[str, str]]:
-    """Return two normalized teams for titles shaped like 'Team A - Team B'."""
+    """Return a normalized hockey matchup from one compact text fragment."""
     if not value:
         return None
-    clean = value.replace("–", "-").replace("—", "-")
-    match = re.search(r"(?:^|:\s*)(.+?)\s+-\s+(.+?)(?:\s*\([^)]*\))?$", clean)
+    clean = value.replace("–", "-").replace("—", "-").strip()
+    clean = re.sub(r"^(?:lední\s+hokej|hokej|elh|tipsport\s+extraliga)\s*:\s*", "", clean, flags=re.IGNORECASE)
+    match = re.match(r"^(.+?)\s*-\s*(.+?)(?:\s*\([^)]*\))?$", clean)
     if not match:
         return None
     teams = tuple(_hockey_team(part) for part in match.groups())
@@ -213,8 +215,27 @@ def _hockey_matchup(value: Optional[str]) -> Optional[tuple[str, str]]:
     return teams
 
 
+def _hockey_matchups(value: Optional[str]) -> list[tuple[str, str]]:
+    """Extract all explicit hockey matchups from title/description evidence.
+
+    TV guides often use a generic programme title and put one or more concrete
+    fixtures in the description. Splitting on common list/sentence separators keeps
+    the matcher independent of individual club aliases and supports multi-game blocks.
+    """
+    if not value:
+        return []
+    fragments = re.split(r"[;|\n•]+|(?<=[.!?])\s+", value)
+    found: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for fragment in fragments:
+        matchup = _hockey_matchup(fragment.strip())
+        if matchup and matchup not in seen:
+            seen.add(matchup)
+            found.append(matchup)
+    return found
+
+
 def _hockey_matchups_equivalent(left: tuple[str, str], right: tuple[str, str]) -> bool:
-    """Require both teams to correspond, allowing home/away order to be reversed."""
     direct = _hockey_team_equivalent(left[0], right[0]) and _hockey_team_equivalent(left[1], right[1])
     reversed_order = _hockey_team_equivalent(left[0], right[1]) and _hockey_team_equivalent(left[1], right[0])
     return direct or reversed_order
@@ -224,8 +245,24 @@ def _event_text(row: sqlite3.Row) -> str:
     return _norm(" ".join(str(row[k] or "") for k in ("sport", "competition", "name", "location", "country")))
 
 
+def _tv_raw_text(row: sqlite3.Row) -> str:
+    return "\n".join(str(row[k] or "") for k in ("title", "description"))
+
+
 def _tv_text(row: sqlite3.Row) -> str:
     return _norm(" ".join(str(row[k] or "") for k in ("channel", "title", "description")))
+
+
+def _tv_evidence(row: sqlite3.Row) -> TVEvidence:
+    text = _tv_text(row)
+    return TVEvidence(
+        text=text,
+        sport=_sport(text),
+        competition=_competition(text),
+        disciplines=frozenset(_disciplines(text)),
+        gender=_gender(text),
+        round=_round(text),
+    )
 
 
 def score_pair(event: sqlite3.Row, tv: sqlite3.Row) -> MatchCandidate:
@@ -236,12 +273,13 @@ def score_pair(event: sqlite3.Row, tv: sqlite3.Row) -> MatchCandidate:
     assert event_start and tv_start
 
     e_text = _event_text(event)
-    t_text = _tv_text(tv)
+    evidence = _tv_evidence(tv)
+    t_text = evidence.text
     reasons: list[str] = []
     score = 0
 
     e_sport = _sport(e_text) or _norm(event["sport"])
-    t_sport = _sport(t_text)
+    t_sport = evidence.sport
     if t_sport and e_sport == t_sport:
         score += 20
         reasons.append(f"sport:{e_sport}")
@@ -250,12 +288,12 @@ def score_pair(event: sqlite3.Row, tv: sqlite3.Row) -> MatchCandidate:
 
     if e_sport == "hockey" and t_sport == "hockey":
         event_matchup = _hockey_matchup(event["name"])
-        tv_matchup = _hockey_matchup(tv["title"])
-        if event_matchup and tv_matchup:
-            if not _hockey_matchups_equivalent(event_matchup, tv_matchup):
+        tv_matchups = _hockey_matchups(_tv_raw_text(tv))
+        if event_matchup and tv_matchups:
+            if not any(_hockey_matchups_equivalent(event_matchup, candidate) for candidate in tv_matchups):
                 return MatchCandidate(event["id"], tv["id"], 0, "no_match", ("team_conflict",))
-            score += 15
-            reasons.append("team_matchup")
+            score += 20
+            reasons.append("participants")
 
     effective_tv_end = tv_end or (tv_start + timedelta(hours=3))
     effective_event_end = event_end or event_start
@@ -278,7 +316,7 @@ def score_pair(event: sqlite3.Row, tv: sqlite3.Row) -> MatchCandidate:
         return MatchCandidate(event["id"], tv["id"], score, "no_match", tuple(reasons + ["time_too_far"]))
 
     e_comp = _competition(e_text)
-    t_comp = _competition(t_text)
+    t_comp = evidence.competition
     if e_comp and t_comp:
         if e_comp == t_comp:
             score += 20
@@ -291,7 +329,7 @@ def score_pair(event: sqlite3.Row, tv: sqlite3.Row) -> MatchCandidate:
         reasons.append("competition_text")
 
     e_disc = _disciplines(e_text)
-    t_disc = _disciplines(t_text)
+    t_disc = set(evidence.disciplines)
     if e_disc and t_disc:
         if e_disc & t_disc:
             score += 12
@@ -303,17 +341,16 @@ def score_pair(event: sqlite3.Row, tv: sqlite3.Row) -> MatchCandidate:
         reasons.append("broad_tv_block")
 
     e_gender = _gender(e_text)
-    t_gender = _gender(t_text)
+    t_gender = evidence.gender
     if e_gender and t_gender:
         if e_gender == t_gender:
             score += 5
             reasons.append(f"gender:{e_gender}")
         else:
-            score -= 8
-            reasons.append("gender_conflict")
+            return MatchCandidate(event["id"], tv["id"], 0, "no_match", ("gender_conflict",))
 
     e_round = _round(e_text)
-    t_round = _round(t_text)
+    t_round = evidence.round
     if e_round and t_round:
         if e_round == t_round:
             score += 3
