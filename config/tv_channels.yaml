@@ -2,8 +2,33 @@ idnes:
   timezone: Europe/Prague
   max_pages_per_query: 5
 
-  # Search terms are intentionally tied to the sports-event sources we currently ingest.
-  # More sports can be added without changing scraper code.
+  # Primary discovery walks the concrete TV channel programme pages so we do
+  # not depend on iDNES search pagination to discover broadcasts.
+  crawl_channels:
+    - ct-1
+    - ct-2
+    - ct-4-sport
+    - eurosport
+    - eurosport-2
+    - nova-sport
+    - nova-sport-2
+    - nova-sport-3
+    - nova-sport-4
+    - nova-sport-5
+    - nova-sport-6
+    - oneplaysport-1
+    - oneplaysport-2
+    - oneplaysport-3
+    - oneplaysport-4
+    - premier-sport
+    - premier-sport-2
+    - premier-sport-3
+    - sport1
+    - sport2
+    - prima-sport
+
+  # Search terms define which sports are retained from the channel schedules.
+  # Search crawling remains available as a fallback for compatibility/debugging.
   search_queries:
     - atletika
     - biatlon
