@@ -196,6 +196,10 @@ def _hockey_team_equivalent(left: str, right: str) -> bool:
     if len(shorter) >= 2:
         if longer[: len(shorter)] == shorter or longer[-len(shorter) :] == shorter:
             return True
+    elif len(shorter) == 1 and len(shorter[0]) >= 5 and shorter[0] in longer:
+        # TV guides often drop a sponsor/brand prefix while retaining the
+        # identifying city or club token, e.g. "Verva Litvínov" -> "Litvínov".
+        return True
 
     return _one_edit_apart(left_words[0], right_words[0])
 
@@ -216,11 +220,12 @@ def _hockey_matchup(value: Optional[str]) -> Optional[tuple[str, str]]:
 
 
 def _hockey_matchups(value: Optional[str]) -> list[tuple[str, str]]:
-    """Extract all explicit hockey matchups from title/description evidence.
+    """Extract explicit hockey matchups from title/description evidence.
 
-    TV guides often use a generic programme title and put one or more concrete
-    fixtures in the description. Splitting on common list/sentence separators keeps
-    the matcher independent of individual club aliases and supports multi-game blocks.
+    iDNES multi-game blocks may prefix a fixture with routing metadata such as
+    ``Oneplay Sport MD7 - ELH:``.  The fixture starts after the hockey marker,
+    so strip that routing prefix before parsing teams.  Plain fixture titles
+    remain supported unchanged.
     """
     if not value:
         return []
@@ -228,10 +233,18 @@ def _hockey_matchups(value: Optional[str]) -> list[tuple[str, str]]:
     found: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for fragment in fragments:
-        matchup = _hockey_matchup(fragment.strip())
-        if matchup and matchup not in seen:
-            seen.add(matchup)
-            found.append(matchup)
+        fragment = fragment.strip()
+        hockey_marker = re.search(
+            r"(?:^|\s)(?:ELH|lední\s+hokej|hokej)\s*:\s*(.+)$",
+            fragment,
+            flags=re.IGNORECASE,
+        )
+        candidates = [hockey_marker.group(1).strip()] if hockey_marker else [fragment]
+        for candidate_text in candidates:
+            matchup = _hockey_matchup(candidate_text)
+            if matchup and matchup not in seen:
+                seen.add(matchup)
+                found.append(matchup)
     return found
 
 
