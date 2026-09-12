@@ -45,6 +45,52 @@ def test_broad_athletics_block_matches_specific_event():
     assert "time_overlap" in result.reasons
 
 
+def test_athletics_can_use_description_as_evidence():
+    event = row(
+        competition="Diamond League",
+        name="100m Women",
+        location="Brussels",
+        start_datetime="2026-09-18T18:10:00+00:00",
+    )
+    tv = row(
+        id=2,
+        title="Sportovní přenos",
+        description="Atletika: Diamantová liga Brusel, 100 m ženy",
+        start_datetime="2026-09-18T18:00:00+00:00",
+        end_datetime="2026-09-18T20:00:00+00:00",
+    )
+    result = score_pair(event, tv)
+    assert result.status == "match"
+    assert "discipline" in result.reasons
+    assert "gender:women" in result.reasons
+    assert "location" in result.reasons
+
+
+def test_biathlon_can_use_description_as_evidence():
+    event = row(
+        sport="biathlon",
+        competition="International Biathlon Union",
+        name="Women 7.5 km Sprint",
+        location="Hochfilzen",
+        country="Austria",
+        start_datetime="2026-12-11T13:30:00+00:00",
+    )
+    tv = row(
+        id=2,
+        channel="Eurosport 1",
+        title="Zimní sporty",
+        description="Biatlon: SP Hochfilzen - sprint žen",
+        start_datetime="2026-12-11T13:20:00+00:00",
+        end_datetime="2026-12-11T15:00:00+00:00",
+    )
+    result = score_pair(event, tv)
+    assert result.status == "match"
+    assert "sport:biathlon" in result.reasons
+    assert "discipline" in result.reasons
+    assert "gender:women" in result.reasons
+    assert "location" in result.reasons
+
+
 def test_wrong_sport_is_rejected():
     event = row()
     tv = row(
@@ -77,9 +123,6 @@ def test_specific_hockey_broadcast_with_wrong_teams_is_rejected():
     )
     tv = row(
         id=2,
-        sport="hockey",
-        competition="ELH",
-        name="unused",
         channel="Oneplay Sport 3",
         title="ELH: HC Olomouc - HC Sparta Praha",
         description="Hokej",
@@ -102,9 +145,6 @@ def test_specific_hockey_broadcast_with_same_teams_matches_even_reversed():
     )
     tv = row(
         id=2,
-        sport="hockey",
-        competition="ELH",
-        name="unused",
         channel="Oneplay Sport 2",
         title="ELH: Mountfield HK - HC Dynamo Pardubice",
         description="Hokej",
@@ -113,7 +153,52 @@ def test_specific_hockey_broadcast_with_same_teams_matches_even_reversed():
     result = score_pair(event, tv)
     assert result.status == "match"
     assert result.score >= 70
-    assert "team_matchup" in result.reasons
+    assert "participants" in result.reasons
+
+
+def test_generic_hockey_title_uses_matchup_from_description():
+    event = row(
+        sport="hockey",
+        competition="ELH",
+        name="HC Dynamo Pardubice - HC Energie Karlovy Vary",
+        location="Pardubice",
+        country="Czechia",
+        start_datetime="2026-09-20T15:00:00+00:00",
+    )
+    tv = row(
+        id=2,
+        channel="Oneplay Sport 3",
+        title="Tipsport extraliga",
+        description="HC Dynamo Pardubice - HC Energie Karlovy Vary",
+        start_datetime="2026-09-20T14:50:00+00:00",
+        end_datetime="2026-09-20T17:30:00+00:00",
+    )
+    result = score_pair(event, tv)
+    assert result.status == "match"
+    assert result.score >= 80
+    assert "participants" in result.reasons
+    assert "competition:extraliga" in result.reasons
+
+
+def test_multigame_hockey_block_matches_only_listed_fixture():
+    event = row(
+        sport="hockey",
+        competition="ELH",
+        name="HC Dynamo Pardubice - HC Energie Karlovy Vary",
+        start_datetime="2026-09-20T15:00:00+00:00",
+    )
+    tv = row(
+        id=2,
+        channel="Oneplay Sport 3",
+        title="Tipsport extraliga",
+        description="HC Kometa Brno - Mountfield HK; HC Sparta Praha - HC Oceláři Třinec",
+        start_datetime="2026-09-20T14:50:00+00:00",
+        end_datetime="2026-09-20T17:30:00+00:00",
+    )
+    result = score_pair(event, tv)
+    assert result.status == "no_match"
+    assert result.score == 0
+    assert result.reasons == ("team_conflict",)
 
 
 def test_chl_saipa_idnes_salpa_typo_matches():
@@ -127,9 +212,6 @@ def test_chl_saipa_idnes_salpa_typo_matches():
     )
     tv = row(
         id=2,
-        sport="hockey",
-        competition="CHL",
-        name="unused",
         channel="Sport1",
         title="Lední hokej: Salpa - Dynamo Pardubice",
         description="Přímý přenos utkání, CHL, základní část",
@@ -139,7 +221,7 @@ def test_chl_saipa_idnes_salpa_typo_matches():
     result = score_pair(event, tv)
     assert result.status == "match"
     assert result.score >= 70
-    assert "team_matchup" in result.reasons
+    assert "participants" in result.reasons
 
 
 def test_chl_kookoo_city_suffix_matches_short_tv_name():
@@ -153,9 +235,6 @@ def test_chl_kookoo_city_suffix_matches_short_tv_name():
     )
     tv = row(
         id=2,
-        sport="hockey",
-        competition="CHL",
-        name="unused",
         channel="Sport2",
         title="Lední hokej: KooKoo - Dynamo Pardubice",
         description="Přímý přenos utkání, CHL, základní část",
@@ -165,7 +244,7 @@ def test_chl_kookoo_city_suffix_matches_short_tv_name():
     result = score_pair(event, tv)
     assert result.status == "match"
     assert result.score >= 70
-    assert "team_matchup" in result.reasons
+    assert "participants" in result.reasons
 
 
 def test_generic_city_suffix_shortening_matches_without_alias_table():
@@ -177,9 +256,6 @@ def test_generic_city_suffix_shortening_matches_without_alias_table():
     )
     tv = row(
         id=2,
-        sport="hockey",
-        competition="CHL",
-        name="unused",
         channel="Sport2",
         title="Hokej: Tappara - Fribourg Gotteron",
         description="CHL",
@@ -188,7 +264,7 @@ def test_generic_city_suffix_shortening_matches_without_alias_table():
     )
     result = score_pair(event, tv)
     assert result.status == "match"
-    assert "team_matchup" in result.reasons
+    assert "participants" in result.reasons
 
 
 def test_generic_single_character_team_typo_matches():
@@ -200,9 +276,6 @@ def test_generic_single_character_team_typo_matches():
     )
     tv = row(
         id=2,
-        sport="hockey",
-        competition="CHL",
-        name="unused",
         channel="Sport1",
         title="Hokej: llves - Dynamo Pardubice",
         description="CHL",
@@ -211,7 +284,7 @@ def test_generic_single_character_team_typo_matches():
     )
     result = score_pair(event, tv)
     assert result.status == "match"
-    assert "team_matchup" in result.reasons
+    assert "participants" in result.reasons
 
 
 def test_fuzzy_matching_does_not_confuse_different_prague_clubs():
@@ -223,9 +296,6 @@ def test_fuzzy_matching_does_not_confuse_different_prague_clubs():
     )
     tv = row(
         id=2,
-        sport="hockey",
-        competition="ELH",
-        name="unused",
         channel="ČT sport",
         title="Hokej: HC Slavia Praha - HC Dynamo Pardubice",
         description="ELH",
