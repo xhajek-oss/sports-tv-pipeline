@@ -43,6 +43,28 @@ jobs:
           restore-keys: |
             production-db-
 
+      - name: Reject stale production database
+        if: inputs.mode == 'digest' || inputs.mode == 'weekly'
+        shell: bash
+        run: |
+          if [[ ! -f data/sports_events.db ]]; then
+            echo "Production database is missing; refusing to send ${MODE}."
+            exit 1
+          fi
+
+          now_epoch=$(date +%s)
+          db_epoch=$(stat -c %Y data/sports_events.db)
+          age_seconds=$((now_epoch - db_epoch))
+          max_age_seconds=$((8 * 60 * 60))
+          echo "Production database age: ${age_seconds}s (limit ${max_age_seconds}s)"
+
+          if (( age_seconds > max_age_seconds )); then
+            echo "Production database is stale; refusing to send ${MODE}."
+            exit 1
+          fi
+        env:
+          MODE: ${{ inputs.mode }}
+
       - name: Restore health state
         if: inputs.mode == 'health'
         uses: actions/cache/restore@v4
@@ -70,6 +92,10 @@ jobs:
           TELEGRAM_HEALTH_CHAT_ID: ${{ secrets.TELEGRAM_HEALTH_CHAT_ID }}
           TELEGRAM_DIGEST_CHAT_ID: ${{ secrets.TELEGRAM_DIGEST_CHAT_ID }}
         run: python runner.py --mode '${{ inputs.mode }}' --source '${{ inputs.source }}'
+
+      - name: Mark production database fresh
+        if: success() && inputs.mode == 'production'
+        run: touch data/sports_events.db
 
       - name: Save validation state
         if: always() && inputs.mode == 'production'
