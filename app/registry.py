@@ -5,6 +5,7 @@ from typing import Callable, Literal
 
 from scrapers.atletika_cz import CzechAthleticsScraper
 from scrapers.biathlonworld import BiathlonWorldScraper
+from scrapers.czechathletics_youtube import CzechAthleticsYouTubeScraper
 from scrapers.diamondleague import DiamondLeagueScraper
 from scrapers.hcdynamo import HCDynamoScraper
 from scrapers.idnes_live import LiveIdnesTVScraper
@@ -31,6 +32,9 @@ SOURCES: dict[str, SourceSpec] = {
     "worldathletics": SourceSpec("worldathletics", "sports", CzechWorldAthleticsScraper),
     "atletika_cz": SourceSpec("atletika_cz", "sports", CzechAthleticsScraper),
     "idnes": SourceSpec("idnes", "tv", LiveIdnesTVScraper),
+    "czechathletics_youtube": SourceSpec(
+        "czechathletics_youtube", "tv", CzechAthleticsYouTubeScraper, allow_empty=True
+    ),
 }
 
 
