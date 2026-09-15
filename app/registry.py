@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Literal
 
+from scrapers.atletika_cz import CzechAthleticsScraper
 from scrapers.biathlonworld import BiathlonWorldScraper
 from scrapers.diamondleague import DiamondLeagueScraper
 from scrapers.hcdynamo import HCDynamoScraper
@@ -28,6 +29,7 @@ SOURCES: dict[str, SourceSpec] = {
     "iihf": SourceSpec("iihf", "sports", IIHFScraper, allow_empty=True),
     "diamondleague": SourceSpec("diamondleague", "sports", DiamondLeagueScraper),
     "worldathletics": SourceSpec("worldathletics", "sports", CzechWorldAthleticsScraper),
+    "atletika_cz": SourceSpec("atletika_cz", "sports", CzechAthleticsScraper),
     "idnes": SourceSpec("idnes", "tv", LiveIdnesTVScraper),
 }
 
