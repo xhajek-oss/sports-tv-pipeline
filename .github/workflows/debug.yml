@@ -10,6 +10,8 @@ on:
         type: choice
         options:
           - idnes
+          - czechathletics_youtube
+          - atletika_cz
           - hcdynamo
           - biathlonworld
           - iihf
