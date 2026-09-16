@@ -35,7 +35,7 @@ jobs:
             validation-state-
 
       - name: Restore production database
-        if: inputs.mode == 'production' || inputs.mode == 'digest' || inputs.mode == 'weekly'
+        if: inputs.mode == 'production' || inputs.mode == 'weekly'
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -45,11 +45,19 @@ jobs:
           restore-keys: |
             production-db-
 
-      - name: Reject stale production database
+      - name: Download exact production snapshot for digest
+        if: inputs.mode == 'digest'
+        uses: actions/download-artifact@v4
+        with:
+          name: production-snapshot-${{ github.run_id }}
+          path: data
+
+      - name: Validate production database
         if: inputs.mode == 'digest' || inputs.mode == 'weekly'
         shell: bash
         env:
           MODE: ${{ inputs.mode }}
+          EXPECTED_RUN_ID: ${{ github.run_id }}
         run: |
           if [[ ! -f data/sports_events.db || ! -f data/production_snapshot.json ]]; then
             echo "Successful Production snapshot is missing; refusing to send ${MODE}."
@@ -63,10 +71,20 @@ jobs:
           from pathlib import Path
 
           meta = json.loads(Path('data/production_snapshot.json').read_text(encoding='utf-8'))
+          if meta.get('status') != 'success':
+              raise SystemExit(f"Production snapshot is not successful; refusing to send {os.environ['MODE']}.")
+
+          if os.environ['MODE'] == 'digest' and str(meta.get('run_id')) != os.environ['EXPECTED_RUN_ID']:
+              raise SystemExit(
+                  f"Digest snapshot belongs to run {meta.get('run_id')}, expected {os.environ['EXPECTED_RUN_ID']}; refusing to send."
+              )
+
           completed_at = datetime.fromisoformat(meta['completed_at'].replace('Z', '+00:00'))
           age = datetime.now(timezone.utc) - completed_at.astimezone(timezone.utc)
           max_age_seconds = 8 * 60 * 60
           print(f"Production snapshot run_id={meta.get('run_id')} age={int(age.total_seconds())}s limit={max_age_seconds}s")
+          if age.total_seconds() < 0:
+              raise SystemExit(f"Production snapshot timestamp is in the future; refusing to send {os.environ['MODE']}.")
           if age.total_seconds() > max_age_seconds:
               raise SystemExit(f"Production snapshot is stale; refusing to send {os.environ['MODE']}.")
           PY
@@ -148,13 +166,16 @@ jobs:
           path: data/health_state.json
           key: health-state-${{ github.run_id }}
 
-      - name: Upload production database
-        if: always() && inputs.mode == 'production'
+      - name: Upload exact production snapshot
+        if: success() && inputs.mode == 'production'
         uses: actions/upload-artifact@v4
         with:
-          name: sports-events-db
-          path: data/sports_events.db
-          if-no-files-found: warn
+          name: production-snapshot-${{ github.run_id }}
+          path: |
+            data/sports_events.db
+            data/production_snapshot.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload debug artifacts
         if: always() && inputs.mode == 'debug'
