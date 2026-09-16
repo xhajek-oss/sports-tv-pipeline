@@ -28,7 +28,10 @@ SOURCES: dict[str, SourceSpec] = {
     "hcdynamo": SourceSpec("hcdynamo", "sports", HCDynamoScraper),
     "biathlonworld": SourceSpec("biathlonworld", "sports", BiathlonWorldScraper),
     "iihf": SourceSpec("iihf", "sports", IIHFScraper, allow_empty=True),
-    "diamondleague": SourceSpec("diamondleague", "sports", DiamondLeagueScraper),
+    # The scraper intentionally returns only current/future meetings. Once the
+    # Diamond League season is over, an empty result is therefore expected and
+    # must not generate a false health alert.
+    "diamondleague": SourceSpec("diamondleague", "sports", DiamondLeagueScraper, allow_empty=True),
     "worldathletics": SourceSpec("worldathletics", "sports", CzechWorldAthleticsScraper),
     "atletika_cz": SourceSpec("atletika_cz", "sports", CzechAthleticsScraper),
     "idnes": SourceSpec("idnes", "tv", LiveIdnesTVScraper),
