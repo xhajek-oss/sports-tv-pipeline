@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime, timedelta, timezone
+from urllib.parse import urljoin
 from zoneinfo import ZoneInfo
 
 import requests
@@ -16,16 +17,17 @@ class CzechAthleticsScraper(BaseScraper):
 
     source = "atletika_cz"
     TIMEZONE = ZoneInfo("Europe/Prague")
+    INDEX_URL = "https://www.atletika.cz/zpravodajstvi/vrcholne-akce/"
     TARGETS = (
         {
             "kind": "mcr_outdoor_senior",
             "competition": "Mistrovství ČR",
-            "url": "https://www.atletika.cz/zpravodajstvi/vrcholne-akce/mcr-muzu-a-zen/",
+            "link_re": re.compile(r"^MČR mužů a žen(?:\s+20\d{2})?$", re.I),
         },
         {
             "kind": "mcr_indoor_senior",
             "competition": "Halové mistrovství ČR",
-            "url": "https://www.atletika.cz/zpravodajstvi/vrcholne-akce/hmcr-muzu-a-zen-2026/",
+            "link_re": re.compile(r"^HMČR mužů a žen(?:\s+20\d{2})?$", re.I),
         },
     )
 
@@ -35,9 +37,37 @@ class CzechAthleticsScraper(BaseScraper):
         r"(?P<year>20\d{2})\s*,\s*(?P<location>[^\n]+)"
     )
 
+    @classmethod
+    def discover_targets(cls, html: str, page_url: str | None = None) -> list[dict[str, str]]:
+        """Resolve the newest listed senior outdoor/indoor championship pages."""
+        base_url = page_url or cls.INDEX_URL
+        soup = BeautifulSoup(html, "html.parser")
+        discovered: list[dict[str, str]] = []
+        for target in cls.TARGETS:
+            candidates: list[tuple[int, str]] = []
+            for anchor in soup.find_all("a", href=True):
+                label = " ".join(anchor.get_text(" ", strip=True).split())
+                if not target["link_re"].fullmatch(label):
+                    continue
+                year_match = re.search(r"(20\d{2})", label)
+                year = int(year_match.group(1)) if year_match else 9999
+                candidates.append((year, urljoin(base_url, anchor["href"])))
+            if not candidates:
+                raise ValueError(f"Could not discover page for {target['kind']}")
+            _, url = max(candidates, key=lambda item: item[0])
+            discovered.append({
+                "kind": target["kind"],
+                "competition": target["competition"],
+                "url": url,
+            })
+        return discovered
+
     def scrape(self):
+        index = requests.get(self.INDEX_URL, timeout=30)
+        index.raise_for_status()
+        targets = self.discover_targets(index.text, index.url)
         events: list[SportsEvent] = []
-        for target in self.TARGETS:
+        for target in targets:
             response = requests.get(target["url"], timeout=30)
             response.raise_for_status()
             events.extend(self._parse_target(response.text, target))
@@ -74,7 +104,6 @@ class CzechAthleticsScraper(BaseScraper):
                     start_datetime=local_start.astimezone(timezone.utc),
                     end_datetime=None,
                     location=location,
-                    # Czech championship reports intentionally show only the city.
                     country=None,
                     source_url=target["url"],
                     discovered_at=discovered_at,
