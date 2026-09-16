@@ -36,6 +36,20 @@ def test_watch_parser_reads_live_broadcast_timestamps():
     assert end.isoformat() == "2026-07-25T16:00:00+00:00"
 
 
+def test_watch_parser_stops_at_balanced_json_object():
+    html = '''<script>ytInitialPlayerResponse = {"videoDetails":{"title":"MČR {finále}"},"microformat":{"playerMicroformatRenderer":{"liveBroadcastDetails":{"startTimestamp":"2026-07-25T10:00:00Z"}}}}; window.after = {"unrelated":true};</script>'''
+    start, end, title = CzechAthleticsYouTubeScraper.parse_watch_html(html)
+    assert title == "MČR {finále}"
+    assert start.isoformat() == "2026-07-25T10:00:00+00:00"
+    assert end is None
+
+
+def test_watch_parser_handles_braces_and_escaped_quotes_inside_strings():
+    html = r'''<script>ytInitialPlayerResponse = {"videoDetails":{"title":"MČR \\"A{B}\\""},"microformat":{"playerMicroformatRenderer":{"liveBroadcastDetails":{"startTimestamp":"2026-07-25T10:00:00Z"}}}};</script>'''
+    start, _, _ = CzechAthleticsYouTubeScraper.parse_watch_html(html)
+    assert start.isoformat() == "2026-07-25T10:00:00+00:00"
+
+
 def test_stream_source_reuses_selected_czech_senior_discovery():
     listing = '''
     <a href="/hmcr-muzu-a-zen-2026/">HMČR mužů a žen 2026</a>
