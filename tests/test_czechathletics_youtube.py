@@ -1,3 +1,4 @@
+from scrapers.atletika_cz import CzechAthleticsScraper
 from scrapers.czechathletics_youtube import CzechAthleticsYouTubeScraper
 
 
@@ -35,8 +36,14 @@ def test_watch_parser_reads_live_broadcast_timestamps():
     assert end.isoformat() == "2026-07-25T16:00:00+00:00"
 
 
-def test_targets_cover_only_selected_czech_senior_championships():
-    assert {target["competition"] for target in CzechAthleticsYouTubeScraper.TARGETS} == {
+def test_stream_source_reuses_selected_czech_senior_discovery():
+    listing = '''
+    <a href="/hmcr-muzu-a-zen-2026/">HMČR mužů a žen 2026</a>
+    <a href="/mcr-muzu-a-zen/">MČR mužů a žen 2026</a>
+    <a href="/mcr-muzu-a-zen-do-22-let/">MČR mužů a žen do 22 let 2026</a>
+    '''
+    targets = CzechAthleticsScraper.discover_targets(listing)
+    assert {target["competition"] for target in targets} == {
         "Mistrovství ČR",
         "Halové mistrovství ČR",
     }
