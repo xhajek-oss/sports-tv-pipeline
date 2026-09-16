@@ -34,8 +34,8 @@ jobs:
           restore-keys: |
             validation-state-
 
-      - name: Restore production database
-        if: inputs.mode == 'production' || inputs.mode == 'weekly'
+      - name: Restore last successful production snapshot
+        if: inputs.mode == 'production' || inputs.mode == 'digest' || inputs.mode == 'weekly'
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -45,19 +45,11 @@ jobs:
           restore-keys: |
             production-db-
 
-      - name: Download exact production snapshot for digest
-        if: inputs.mode == 'digest'
-        uses: actions/download-artifact@v4
-        with:
-          name: production-snapshot-${{ github.run_id }}
-          path: data
-
-      - name: Validate production database
+      - name: Validate production snapshot
         if: inputs.mode == 'digest' || inputs.mode == 'weekly'
         shell: bash
         env:
           MODE: ${{ inputs.mode }}
-          EXPECTED_RUN_ID: ${{ github.run_id }}
         run: |
           if [[ ! -f data/sports_events.db || ! -f data/production_snapshot.json ]]; then
             echo "Successful Production snapshot is missing; refusing to send ${MODE}."
@@ -67,26 +59,30 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import sqlite3
           from datetime import datetime, timezone
           from pathlib import Path
 
+          db_path = Path('data/sports_events.db')
           meta = json.loads(Path('data/production_snapshot.json').read_text(encoding='utf-8'))
           if meta.get('status') != 'success':
               raise SystemExit(f"Production snapshot is not successful; refusing to send {os.environ['MODE']}.")
-
-          if os.environ['MODE'] == 'digest' and str(meta.get('run_id')) != os.environ['EXPECTED_RUN_ID']:
-              raise SystemExit(
-                  f"Digest snapshot belongs to run {meta.get('run_id')}, expected {os.environ['EXPECTED_RUN_ID']}; refusing to send."
-              )
+          if not meta.get('run_id') or not meta.get('commit') or not meta.get('completed_at'):
+              raise SystemExit(f"Production snapshot metadata is incomplete; refusing to send {os.environ['MODE']}.")
 
           completed_at = datetime.fromisoformat(meta['completed_at'].replace('Z', '+00:00'))
           age = datetime.now(timezone.utc) - completed_at.astimezone(timezone.utc)
           max_age_seconds = 8 * 60 * 60
-          print(f"Production snapshot run_id={meta.get('run_id')} age={int(age.total_seconds())}s limit={max_age_seconds}s")
+          print(f"Using last successful Production snapshot run_id={meta.get('run_id')} age={int(age.total_seconds())}s limit={max_age_seconds}s")
           if age.total_seconds() < 0:
               raise SystemExit(f"Production snapshot timestamp is in the future; refusing to send {os.environ['MODE']}.")
           if age.total_seconds() > max_age_seconds:
               raise SystemExit(f"Production snapshot is stale; refusing to send {os.environ['MODE']}.")
+
+          with sqlite3.connect(db_path) as conn:
+              result = conn.execute('PRAGMA quick_check').fetchone()
+          if not result or result[0] != 'ok':
+              raise SystemExit(f"Production database integrity check failed; refusing to send {os.environ['MODE']}.")
           PY
 
       - name: Restore health state
@@ -98,10 +94,12 @@ jobs:
           restore-keys: |
             health-state-
 
-      - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          python -m playwright install --with-deps chromium
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install browser runtime
+        if: inputs.mode == 'production' || inputs.mode == 'pr' || inputs.mode == 'debug'
+        run: python -m playwright install --with-deps chromium
 
       - name: Run full test suite
         if: inputs.mode == 'pr'
@@ -150,7 +148,7 @@ jobs:
           path: data/validation_state.json
           key: validation-state-${{ github.run_id }}
 
-      - name: Save production database
+      - name: Save last-known-good production snapshot
         if: success() && inputs.mode == 'production'
         uses: actions/cache/save@v4
         with:
@@ -166,7 +164,7 @@ jobs:
           path: data/health_state.json
           key: health-state-${{ github.run_id }}
 
-      - name: Upload exact production snapshot
+      - name: Archive successful production snapshot
         if: success() && inputs.mode == 'production'
         uses: actions/upload-artifact@v4
         with:
