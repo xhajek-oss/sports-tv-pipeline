@@ -10,6 +10,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from models.tv_program import TVProgram
+from scrapers.atletika_cz import CzechAthleticsScraper
 
 
 PLAYER_RESPONSE_RE = re.compile(
@@ -18,19 +19,9 @@ PLAYER_RESPONSE_RE = re.compile(
 
 
 class CzechAthleticsYouTubeScraper:
-    """Discover official ČAS streams from Atletika.cz, then read their YouTube timing."""
+    """Use Atletika.cz as authority for ČAS streams, then read YouTube timing."""
 
     source = "czechathletics_youtube"
-    TARGETS = (
-        {
-            "competition": "Mistrovství ČR",
-            "url": "https://www.atletika.cz/zpravodajstvi/vrcholne-akce/mcr-muzu-a-zen/",
-        },
-        {
-            "competition": "Halové mistrovství ČR",
-            "url": "https://www.atletika.cz/zpravodajstvi/vrcholne-akce/hmcr-muzu-a-zen-2026/",
-        },
-    )
 
     def __init__(self, timeout: int = 20):
         self.timeout = timeout
@@ -47,7 +38,6 @@ class CzechAthleticsYouTubeScraper:
 
     @staticmethod
     def parse_atletika_stream_links(html: str, page_url: str) -> list[str]:
-        """Return stream links explicitly published by ČAS on an event page."""
         soup = BeautifulSoup(html, "html.parser")
         links: list[str] = []
         seen: set[str] = set()
@@ -62,20 +52,22 @@ class CzechAthleticsYouTubeScraper:
         return links
 
     def _resolve_youtube_url(self, stream_url: str) -> Optional[str]:
-        """Follow an Atletika.cz stream subpage redirect to the official YouTube video."""
         response = self._fetch(stream_url)
         final_url = response.url
         host = urlparse(final_url).netloc.casefold()
         if host.endswith("youtube.com") or host.endswith("youtu.be"):
             return final_url
 
-        # Some ČAS pages may embed/link YouTube instead of redirecting directly.
         soup = BeautifulSoup(response.text, "html.parser")
-        for tag in soup.find_all(["a", "iframe"], href=True) + soup.find_all("iframe", src=True):
-            candidate = tag.get("href") or tag.get("src")
-            if not candidate:
+        candidates = []
+        for tag in soup.find_all("a", href=True):
+            candidates.append(tag.get("href"))
+        for tag in soup.find_all("iframe", src=True):
+            candidates.append(tag.get("src"))
+        for raw in candidates:
+            if not raw:
                 continue
-            candidate = urljoin(final_url, candidate)
+            candidate = urljoin(final_url, raw)
             candidate_host = urlparse(candidate).netloc.casefold()
             if candidate_host.endswith("youtube.com") or candidate_host.endswith("youtu.be"):
                 return candidate
@@ -105,10 +97,12 @@ class CzechAthleticsYouTubeScraper:
 
     def scrape(self) -> list[TVProgram]:
         discovered_at = datetime.now(timezone.utc)
+        index = self._fetch(CzechAthleticsScraper.INDEX_URL)
+        targets = CzechAthleticsScraper.discover_targets(index.text, index.url)
         programs: list[TVProgram] = []
         seen_youtube: set[str] = set()
 
-        for target in self.TARGETS:
+        for target in targets:
             event_response = self._fetch(target["url"])
             stream_links = self.parse_atletika_stream_links(event_response.text, event_response.url)
             for stream_link in stream_links:
@@ -120,8 +114,6 @@ class CzechAthleticsYouTubeScraper:
                 watch_response = self._fetch(youtube_url)
                 start, end, watch_title = self.parse_watch_html(watch_response.text)
                 if start is None:
-                    # ČAS confirms a stream exists, but without a usable broadcast time
-                    # it cannot safely enter time-based matching/reporting yet.
                     continue
 
                 programs.append(TVProgram(
