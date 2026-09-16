@@ -1,38 +1,181 @@
 from __future__ import annotations
 
-import argparse
+import json
+import re
+import traceback
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable
 
-from app.runner import PipelineRunner
-
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Unified sports/TV pipeline runner")
-    parser.add_argument(
-        "--mode",
-        required=True,
-        choices=("pr", "health", "production", "debug", "digest", "weekly"),
-    )
-    parser.add_argument(
-        "--source",
-        default="all",
-        help="all, one source, or comma-separated sources",
-    )
-    return parser.parse_args()
+from app.registry import SourceSpec, selected_sources
+from delivery.digest import build_today_digest
+from delivery.weekly import build_next_week_report
+from matching.tv_matcher import TVMatcher
+from monitoring.health import HealthStateStore, classify_health, jsonable
+from monitoring.telegram import format_transition, send_digest, send_telegram
+from storage.sqlite import SQLiteStorage
+from validation.event_validator import EventCountValidator
 
 
-def main() -> int:
-    args = parse_args()
-    results = PipelineRunner().run(mode=args.mode, source=args.source)
-    failed = [item for item in results if item.status == "down"]
-    warnings = [item for item in results if item.status == "warning"]
-    print(
-        f"[RUNNER] mode={args.mode} sources={len(results)} "
-        f"failed={len(failed)} warnings={len(warnings)}"
-    )
-    if failed and args.mode in {"production", "debug", "pr", "digest", "weekly"}:
-        return 1
-    return 0
+@dataclass(frozen=True)
+class SourceRun:
+    source: str
+    kind: str
+    count: int
+    status: str
+    message: str
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+class PipelineRunner:
+    def __init__(self, *, db_path: str = "data/sports_events.db", validation_state: str = "data/validation_state.json", health_state: str = "data/health_state.json", artifact_dir: str = "artifacts/debug") -> None:
+        self.db_path = db_path
+        self.validation_state = validation_state
+        self.health_state = health_state
+        self.artifact_dir = Path(artifact_dir)
+
+    @staticmethod
+    def _close_scraper(scraper: object) -> None:
+        close = getattr(scraper, "_close_browser", None)
+        if callable(close):
+            close()
+
+    def _write_debug(self, source: str, *, items: Iterable[object] = (), error: Exception | None = None) -> None:
+        target = self.artifact_dir / source
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "parsed.json").write_text(json.dumps([jsonable(item) for item in items], ensure_ascii=False, indent=2), encoding="utf-8")
+        if error is not None:
+            (target / "error.txt").write_text("".join(traceback.format_exception(type(error), error, error.__traceback__)), encoding="utf-8")
+
+    def _scrape(self, spec: SourceSpec) -> tuple[list[object], Exception | None]:
+        scraper = spec.factory()
+        try:
+            return list(scraper.scrape()), None
+        except Exception as exc:
+            return [], exc
+        finally:
+            self._close_scraper(scraper)
+
+    def run_pr(self) -> list[SourceRun]:
+        results = []
+        for spec in selected_sources("all"):
+            scraper = spec.factory()
+            source = getattr(scraper, "source", None)
+            self._close_scraper(scraper)
+            if not source:
+                raise RuntimeError(f"{spec.name}: scraper has no source identifier")
+            results.append(SourceRun(spec.name, spec.kind, 0, "ready", "registry ok"))
+        return results
+
+    def run_health(self, source: str = "all") -> list[SourceRun]:
+        state = HealthStateStore(self.health_state)
+        results: list[SourceRun] = []
+        for spec in selected_sources(source):
+            items, error = self._scrape(spec)
+            health = classify_health(source=spec.name, count=len(items), allow_empty=spec.allow_empty, error=error)
+            transition = state.record(health)
+            print(f"[HEALTH] source={spec.name} status={health.status} count={health.count} message={health.message}")
+            if transition:
+                try:
+                    send_telegram(format_transition(health, transition))
+                except Exception as exc:
+                    print(f"[TELEGRAM] ERROR: {exc}")
+            results.append(SourceRun(spec.name, spec.kind, len(items), health.status, health.message))
+        state.keep_unchecked_previous()
+        state.save()
+        return results
+
+    def run_debug(self, source: str) -> list[SourceRun]:
+        if source == "all":
+            raise ValueError("Debug mode requires one explicit source")
+        results: list[SourceRun] = []
+        for spec in selected_sources(source):
+            items, error = self._scrape(spec)
+            self._write_debug(spec.name, items=items, error=error)
+            if error:
+                print(f"[DEBUG] source={spec.name} ERROR: {error}")
+                results.append(SourceRun(spec.name, spec.kind, 0, "down", str(error)))
+            else:
+                print(f"[DEBUG] source={spec.name} items={len(items)} artifact={self.artifact_dir / spec.name}")
+                results.append(SourceRun(spec.name, spec.kind, len(items), "healthy", "debug artifacts written"))
+        return results
+
+    def run_production(self, source: str = "all") -> list[SourceRun]:
+        storage = SQLiteStorage(self.db_path)
+        validator = EventCountValidator(self.validation_state)
+        results: list[SourceRun] = []
+        selected = selected_sources(source)
+        try:
+            for spec in selected:
+                print(f"[PROD] scraping {spec.name}...")
+                items, error = self._scrape(spec)
+                if error is not None:
+                    if spec.kind == "sports":
+                        validator.keep_previous(spec.name)
+                    print(f"[PROD] {spec.name}: ERROR: {error}; previous DB data preserved")
+                    results.append(SourceRun(spec.name, spec.kind, 0, "down", str(error)))
+                    continue
+                warnings: list[str] = []
+                if spec.kind == "sports":
+                    validation = validator.validate(spec.name, items)
+                    warnings = validation.warnings
+                    for item in items:
+                        storage.upsert(item)
+                else:
+                    for item in items:
+                        storage.upsert_tv_program(item)
+                status = "warning" if warnings else "healthy"
+                message = "; ".join(warnings) if warnings else "ok"
+                print(f"[PROD] {spec.name}: {len(items)} items status={status}")
+                results.append(SourceRun(spec.name, spec.kind, len(items), status, message))
+            validator.save()
+        finally:
+            storage.close()
+
+        if source == "all" or any(spec.kind == "tv" for spec in selected):
+            try:
+                matches = TVMatcher(self.db_path).find_candidates(min_score=50)
+                print(f"[PROD] matcher candidates={len(matches)}")
+            except Exception as exc:
+                print(f"[PROD] matcher ERROR: {exc}")
+                results.append(SourceRun("tv_matcher", "matcher", 0, "down", str(exc)))
+        return results
+
+    def run_digest(self) -> list[SourceRun]:
+        try:
+            message = build_today_digest(self.db_path)
+            if not message:
+                print("[DIGEST] no qualifying live broadcasts today; nothing sent")
+                return [SourceRun("telegram_digest", "delivery", 0, "healthy", "nothing to send")]
+            message = re.sub(r"(🏆 [^\n]+)\n\n", r"\1\n", message)
+            sent = send_digest(message)
+            if not sent:
+                return [SourceRun("telegram_digest", "delivery", 0, "warning", "TELEGRAM_BOT_TOKEN or TELEGRAM_DIGEST_CHAT_ID not configured")]
+            print("[DIGEST] Telegram digest sent")
+            return [SourceRun("telegram_digest", "delivery", 1, "healthy", "sent")]
+        except Exception as exc:
+            print(f"[DIGEST] ERROR: {exc}")
+            return [SourceRun("telegram_digest", "delivery", 0, "down", str(exc))]
+
+    def run_weekly(self) -> list[SourceRun]:
+        try:
+            message = build_next_week_report(self.db_path)
+            if not message:
+                print("[WEEKLY] no sports events next week; nothing sent")
+                return [SourceRun("telegram_weekly", "delivery", 0, "healthy", "nothing to send")]
+            sent = send_digest(message)
+            if not sent:
+                return [SourceRun("telegram_weekly", "delivery", 0, "warning", "TELEGRAM_BOT_TOKEN or TELEGRAM_DIGEST_CHAT_ID not configured")]
+            print("[WEEKLY] Telegram weekly report sent")
+            return [SourceRun("telegram_weekly", "delivery", 1, "healthy", "sent")]
+        except Exception as exc:
+            print(f"[WEEKLY] ERROR: {exc}")
+            return [SourceRun("telegram_weekly", "delivery", 0, "down", str(exc))]
+
+    def run(self, *, mode: str, source: str = "all") -> list[SourceRun]:
+        if mode == "pr": return self.run_pr()
+        if mode == "health": return self.run_health(source)
+        if mode == "debug": return self.run_debug(source)
+        if mode == "production": return self.run_production(source)
+        if mode == "digest": return self.run_digest()
+        if mode == "weekly": return self.run_weekly()
+        raise ValueError(f"Unknown mode: {mode}")
