@@ -4,7 +4,15 @@ on:
   workflow_dispatch:
 
 jobs:
+  refresh-production:
+    uses: ./.github/workflows/_pipeline.yml
+    with:
+      mode: production
+      source: all
+    secrets: inherit
+
   digest:
+    needs: refresh-production
     uses: ./.github/workflows/_pipeline.yml
     with:
       mode: digest
