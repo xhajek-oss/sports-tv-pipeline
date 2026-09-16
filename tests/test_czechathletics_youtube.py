@@ -45,8 +45,9 @@ def test_watch_parser_stops_at_balanced_json_object():
 
 
 def test_watch_parser_handles_braces_and_escaped_quotes_inside_strings():
-    html = r'''<script>ytInitialPlayerResponse = {"videoDetails":{"title":"MČR \\"A{B}\\""},"microformat":{"playerMicroformatRenderer":{"liveBroadcastDetails":{"startTimestamp":"2026-07-25T10:00:00Z"}}}};</script>'''
-    start, _, _ = CzechAthleticsYouTubeScraper.parse_watch_html(html)
+    html = '<script>ytInitialPlayerResponse = {"videoDetails":{"title":"MČR \\"A{B}\\""},"microformat":{"playerMicroformatRenderer":{"liveBroadcastDetails":{"startTimestamp":"2026-07-25T10:00:00Z"}}}};</script>'
+    start, _, title = CzechAthleticsYouTubeScraper.parse_watch_html(html)
+    assert title == 'MČR "A{B}"'
     assert start.isoformat() == "2026-07-25T10:00:00+00:00"
 
 
