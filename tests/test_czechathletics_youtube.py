@@ -1,18 +1,30 @@
 from scrapers.czechathletics_youtube import CzechAthleticsYouTubeScraper
 
 
-def test_channel_parser_keeps_selected_senior_championships_only():
-    html = '''<script>var ytInitialData = {"contents":{"videoRenderer":{"videoId":"senior1","title":{"runs":[{"text":"MČR mužů a žen 2026 - 1. den"}]}}},"other":{"videoRenderer":{"videoId":"youth1","title":{"simpleText":"MČR juniorů a dorostu 2026"}}}};</script>'''
-    assert CzechAthleticsYouTubeScraper.parse_channel_html(html) == [
-        ("senior1", "MČR mužů a žen 2026 - 1. den")
+def test_atletika_parser_finds_only_stream_links():
+    html = '''
+    <html><body>
+      <a href="stream-sobota/">Stream - sobota</a>
+      <a href="stream-nedele/">Stream - neděle</a>
+      <a href="propozice/">Propozice</a>
+    </body></html>
+    '''
+    links = CzechAthleticsYouTubeScraper.parse_atletika_stream_links(
+        html,
+        "https://www.atletika.cz/zpravodajstvi/vrcholne-akce/hmcr-muzu-a-zen-2026/",
+    )
+    assert links == [
+        "https://www.atletika.cz/zpravodajstvi/vrcholne-akce/hmcr-muzu-a-zen-2026/stream-sobota/",
+        "https://www.atletika.cz/zpravodajstvi/vrcholne-akce/hmcr-muzu-a-zen-2026/stream-nedele/",
     ]
 
 
-def test_channel_parser_accepts_indoor_senior_championship():
-    html = '''<script>ytInitialData = {"contents":{"gridVideoRenderer":{"videoId":"indoor1","title":{"simpleText":"HMČR mužů a žen 2026 | Ostrava"}}}};</script>'''
-    assert CzechAthleticsYouTubeScraper.parse_channel_html(html) == [
-        ("indoor1", "HMČR mužů a žen 2026 | Ostrava")
-    ]
+def test_atletika_parser_accepts_direct_youtube_stream():
+    html = '''<a href="https://www.youtube.com/watch?v=abc123">Stream (YouTube)</a>'''
+    links = CzechAthleticsYouTubeScraper.parse_atletika_stream_links(
+        html, "https://www.atletika.cz/event/"
+    )
+    assert links == ["https://www.youtube.com/watch?v=abc123"]
 
 
 def test_watch_parser_reads_live_broadcast_timestamps():
@@ -23,6 +35,8 @@ def test_watch_parser_reads_live_broadcast_timestamps():
     assert end.isoformat() == "2026-07-25T16:00:00+00:00"
 
 
-def test_youth_stream_is_not_relevant():
-    assert CzechAthleticsYouTubeScraper._is_relevant("HMČR juniorů a dorostu") is False
-    assert CzechAthleticsYouTubeScraper._is_relevant("MČR do 22 let") is False
+def test_targets_cover_only_selected_czech_senior_championships():
+    assert {target["competition"] for target in CzechAthleticsYouTubeScraper.TARGETS} == {
+        "Mistrovství ČR",
+        "Halové mistrovství ČR",
+    }
