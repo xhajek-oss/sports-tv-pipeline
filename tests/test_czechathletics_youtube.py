@@ -28,27 +28,22 @@ def test_atletika_parser_accepts_direct_youtube_stream():
     assert links == ["https://www.youtube.com/watch?v=abc123"]
 
 
-def test_watch_parser_reads_live_broadcast_timestamps():
-    html = '''<script>ytInitialPlayerResponse = {"videoDetails":{"title":"MČR mužů a žen 2026 - 1. den"},"microformat":{"playerMicroformatRenderer":{"liveBroadcastDetails":{"startTimestamp":"2026-07-25T10:00:00Z","endTimestamp":"2026-07-25T16:00:00Z"}}}};</script>'''
-    start, end, title = CzechAthleticsYouTubeScraper.parse_watch_html(html)
-    assert title == "MČR mužů a žen 2026 - 1. den"
-    assert start.isoformat() == "2026-07-25T10:00:00+00:00"
-    assert end.isoformat() == "2026-07-25T16:00:00+00:00"
+def test_resolves_youtube_embedded_on_atletika_page_without_youtube_metadata():
+    html = '''
+    <html><body>
+      <iframe src="https://www.youtube.com/embed/abc123"></iframe>
+    </body></html>
+    '''
+    assert CzechAthleticsYouTubeScraper.resolve_youtube_from_atletika_html(
+        html, "https://www.atletika.cz/stream-sobota/"
+    ) == "https://www.youtube.com/embed/abc123"
 
 
-def test_watch_parser_stops_at_balanced_json_object():
-    html = '''<script>ytInitialPlayerResponse = {"videoDetails":{"title":"MČR {finále}"},"microformat":{"playerMicroformatRenderer":{"liveBroadcastDetails":{"startTimestamp":"2026-07-25T10:00:00Z"}}}}; window.after = {"unrelated":true};</script>'''
-    start, end, title = CzechAthleticsYouTubeScraper.parse_watch_html(html)
-    assert title == "MČR {finále}"
-    assert start.isoformat() == "2026-07-25T10:00:00+00:00"
-    assert end is None
-
-
-def test_watch_parser_handles_braces_and_escaped_quotes_inside_strings():
-    html = '<script>ytInitialPlayerResponse = {"videoDetails":{"title":"MČR \\"A{B}\\""},"microformat":{"playerMicroformatRenderer":{"liveBroadcastDetails":{"startTimestamp":"2026-07-25T10:00:00Z"}}}};</script>'
-    start, _, title = CzechAthleticsYouTubeScraper.parse_watch_html(html)
-    assert title == 'MČR "A{B}"'
-    assert start.isoformat() == "2026-07-25T10:00:00+00:00"
+def test_non_youtube_link_is_not_reported_as_youtube():
+    html = '''<a href="https://example.com/live">jiný přenos</a>'''
+    assert CzechAthleticsYouTubeScraper.resolve_youtube_from_atletika_html(
+        html, "https://www.atletika.cz/stream/"
+    ) is None
 
 
 def test_stream_source_reuses_selected_czech_senior_discovery():
