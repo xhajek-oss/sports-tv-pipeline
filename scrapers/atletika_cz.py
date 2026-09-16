@@ -19,12 +19,12 @@ class CzechAthleticsScraper(BaseScraper):
     TARGETS = (
         {
             "kind": "mcr_outdoor_senior",
-            "competition": "MČR mužů a žen",
+            "competition": "Mistrovství ČR",
             "url": "https://www.atletika.cz/zpravodajstvi/vrcholne-akce/mcr-muzu-a-zen/",
         },
         {
             "kind": "mcr_indoor_senior",
-            "competition": "HMČR mužů a žen",
+            "competition": "Halové mistrovství ČR",
             "url": "https://www.atletika.cz/zpravodajstvi/vrcholne-akce/hmcr-muzu-a-zen-2026/",
         },
     )
@@ -74,7 +74,8 @@ class CzechAthleticsScraper(BaseScraper):
                     start_datetime=local_start.astimezone(timezone.utc),
                     end_datetime=None,
                     location=location,
-                    country="CZE",
+                    # Czech championship reports intentionally show only the city.
+                    country=None,
                     source_url=target["url"],
                     discovered_at=discovered_at,
                     timezone="Europe/Prague",
