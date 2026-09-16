@@ -4,7 +4,6 @@ import json
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
-from urllib.parse import urljoin
 
 import requests
 
@@ -74,8 +73,6 @@ class CzechAthleticsYouTubeScraper:
             return False
         has_athletics = any(term in folded for term in ATHLETICS_TERMS)
         has_senior = any(term in folded for term in SENIOR_TERMS)
-        # The two selected Czech competitions are senior MČR/HMČR. Requiring
-        # senior wording prevents youth championships from entering matching.
         return has_athletics and has_senior
 
     @classmethod
@@ -135,7 +132,7 @@ class CzechAthleticsYouTubeScraper:
             programs.append(TVProgram(
                 source=self.source,
                 source_id=video_id,
-                channel="Czech Athletics YouTube",
+                channel="YouTube",
                 title=title,
                 description="Oficiální online stream Českého atletického svazu",
                 start_datetime=start,
