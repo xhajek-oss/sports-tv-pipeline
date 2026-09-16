@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urljoin, urlparse
@@ -13,9 +12,7 @@ from models.tv_program import TVProgram
 from scrapers.atletika_cz import CzechAthleticsScraper
 
 
-PLAYER_RESPONSE_RE = re.compile(
-    r"ytInitialPlayerResponse\s*=\s*({.+?})\s*;\s*</script>", re.DOTALL
-)
+PLAYER_RESPONSE_MARKER = "ytInitialPlayerResponse"
 
 
 class CzechAthleticsYouTubeScraper:
@@ -73,14 +70,46 @@ class CzechAthleticsYouTubeScraper:
                 return candidate
         return None
 
+    @staticmethod
+    def _extract_player_response(html: str) -> Optional[dict]:
+        marker = html.find(PLAYER_RESPONSE_MARKER)
+        if marker < 0:
+            return None
+        start = html.find("{", marker + len(PLAYER_RESPONSE_MARKER))
+        if start < 0:
+            return None
+
+        depth = 0
+        in_string = False
+        escaped = False
+        for index in range(start, len(html)):
+            char = html[index]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    data = json.loads(html[start:index + 1])
+                    return data if isinstance(data, dict) else None
+        return None
+
     @classmethod
     def parse_watch_html(cls, html: str) -> tuple[Optional[datetime], Optional[datetime], Optional[str]]:
-        match = PLAYER_RESPONSE_RE.search(html)
-        if not match:
+        data = cls._extract_player_response(html)
+        if data is None:
             return None, None, None
-        data = json.loads(match.group(1))
-        details = data.get("videoDetails") if isinstance(data, dict) else None
-        micro = data.get("microformat", {}).get("playerMicroformatRenderer", {}) if isinstance(data, dict) else {}
+        details = data.get("videoDetails")
+        micro = data.get("microformat", {}).get("playerMicroformatRenderer", {})
         title = details.get("title") if isinstance(details, dict) else None
         live = micro.get("liveBroadcastDetails") if isinstance(micro, dict) else None
         if not isinstance(live, dict):
