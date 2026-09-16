@@ -3,34 +3,34 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable, Optional
+from typing import Optional
+from urllib.parse import urljoin, urlparse
 
 import requests
+from bs4 import BeautifulSoup
 
 from models.tv_program import TVProgram
 
 
-CHANNEL_STREAMS_URL = "https://www.youtube.com/@czechathletics/streams"
-WATCH_URL = "https://www.youtube.com/watch?v={video_id}"
-INITIAL_DATA_RE = re.compile(r"(?:var\s+ytInitialData\s*=|ytInitialData\s*=)\s*({.+?})\s*;\s*</script>", re.DOTALL)
-PLAYER_RESPONSE_RE = re.compile(r"ytInitialPlayerResponse\s*=\s*({.+?})\s*;\s*</script>", re.DOTALL)
-ATHLETICS_TERMS = (
-    "atletika", "athletics", "mčr", "mcr", "hmčr", "hmcr",
-    "mistrovství čr", "mistrovstvi cr", "mistrovství české republiky",
-)
-SENIOR_TERMS = (
-    "mužů a žen", "muzu a zen", "muži a ženy", "muzi a zeny",
-    "dospěl", "senior",
-)
-EXCLUDED_YOUTH_TERMS = (
-    "žact", "zact", "dorost", "junior", "u18", "u20", "u23", "do 22",
+PLAYER_RESPONSE_RE = re.compile(
+    r"ytInitialPlayerResponse\s*=\s*({.+?})\s*;\s*</script>", re.DOTALL
 )
 
 
 class CzechAthleticsYouTubeScraper:
-    """Discover official ČAS livestreams without requiring a YouTube API key."""
+    """Discover official ČAS streams from Atletika.cz, then read their YouTube timing."""
 
     source = "czechathletics_youtube"
+    TARGETS = (
+        {
+            "competition": "Mistrovství ČR",
+            "url": "https://www.atletika.cz/zpravodajstvi/vrcholne-akce/mcr-muzu-a-zen/",
+        },
+        {
+            "competition": "Halové mistrovství ČR",
+            "url": "https://www.atletika.cz/zpravodajstvi/vrcholne-akce/hmcr-muzu-a-zen-2026/",
+        },
+    )
 
     def __init__(self, timeout: int = 20):
         self.timeout = timeout
@@ -40,62 +40,46 @@ class CzechAthleticsYouTubeScraper:
             "Accept-Language": "cs-CZ,cs;q=0.9,en;q=0.8",
         })
 
-    def _fetch(self, url: str) -> str:
+    def _fetch(self, url: str) -> requests.Response:
         response = self.session.get(url, timeout=self.timeout)
         response.raise_for_status()
-        return response.text
+        return response
 
     @staticmethod
-    def _walk(value: Any) -> Iterable[dict[str, Any]]:
-        if isinstance(value, dict):
-            yield value
-            for child in value.values():
-                yield from CzechAthleticsYouTubeScraper._walk(child)
-        elif isinstance(value, list):
-            for child in value:
-                yield from CzechAthleticsYouTubeScraper._walk(child)
-
-    @staticmethod
-    def _text(value: Any) -> str:
-        if not isinstance(value, dict):
-            return ""
-        if isinstance(value.get("simpleText"), str):
-            return value["simpleText"].strip()
-        runs = value.get("runs")
-        if isinstance(runs, list):
-            return "".join(str(run.get("text", "")) for run in runs if isinstance(run, dict)).strip()
-        return ""
-
-    @classmethod
-    def _is_relevant(cls, title: str) -> bool:
-        folded = title.casefold()
-        if any(term in folded for term in EXCLUDED_YOUTH_TERMS):
-            return False
-        has_athletics = any(term in folded for term in ATHLETICS_TERMS)
-        has_senior = any(term in folded for term in SENIOR_TERMS)
-        return has_athletics and has_senior
-
-    @classmethod
-    def parse_channel_html(cls, html: str) -> list[tuple[str, str]]:
-        match = INITIAL_DATA_RE.search(html)
-        if not match:
-            return []
-        data = json.loads(match.group(1))
-        found: list[tuple[str, str]] = []
+    def parse_atletika_stream_links(html: str, page_url: str) -> list[str]:
+        """Return stream links explicitly published by ČAS on an event page."""
+        soup = BeautifulSoup(html, "html.parser")
+        links: list[str] = []
         seen: set[str] = set()
-        for node in cls._walk(data):
-            renderer = node.get("videoRenderer") or node.get("gridVideoRenderer")
-            if not isinstance(renderer, dict):
+        for anchor in soup.find_all("a", href=True):
+            label = anchor.get_text(" ", strip=True).casefold()
+            if "stream" not in label:
                 continue
-            video_id = renderer.get("videoId")
-            title = cls._text(renderer.get("title"))
-            if not isinstance(video_id, str) or not video_id or not title:
+            href = urljoin(page_url, anchor["href"])
+            if href not in seen:
+                seen.add(href)
+                links.append(href)
+        return links
+
+    def _resolve_youtube_url(self, stream_url: str) -> Optional[str]:
+        """Follow an Atletika.cz stream subpage redirect to the official YouTube video."""
+        response = self._fetch(stream_url)
+        final_url = response.url
+        host = urlparse(final_url).netloc.casefold()
+        if host.endswith("youtube.com") or host.endswith("youtu.be"):
+            return final_url
+
+        # Some ČAS pages may embed/link YouTube instead of redirecting directly.
+        soup = BeautifulSoup(response.text, "html.parser")
+        for tag in soup.find_all(["a", "iframe"], href=True) + soup.find_all("iframe", src=True):
+            candidate = tag.get("href") or tag.get("src")
+            if not candidate:
                 continue
-            if video_id in seen or not cls._is_relevant(title):
-                continue
-            seen.add(video_id)
-            found.append((video_id, title))
-        return found
+            candidate = urljoin(final_url, candidate)
+            candidate_host = urlparse(candidate).netloc.casefold()
+            if candidate_host.endswith("youtube.com") or candidate_host.endswith("youtu.be"):
+                return candidate
+        return None
 
     @classmethod
     def parse_watch_html(cls, html: str) -> tuple[Optional[datetime], Optional[datetime], Optional[str]]:
@@ -121,26 +105,38 @@ class CzechAthleticsYouTubeScraper:
 
     def scrape(self) -> list[TVProgram]:
         discovered_at = datetime.now(timezone.utc)
-        cards = self.parse_channel_html(self._fetch(CHANNEL_STREAMS_URL))
         programs: list[TVProgram] = []
-        for video_id, card_title in cards:
-            url = WATCH_URL.format(video_id=video_id)
-            start, end, watch_title = self.parse_watch_html(self._fetch(url))
-            title = watch_title or card_title
-            if start is None or not self._is_relevant(title):
-                continue
-            programs.append(TVProgram(
-                source=self.source,
-                source_id=video_id,
-                channel="YouTube",
-                title=title,
-                description="Oficiální online stream Českého atletického svazu",
-                start_datetime=start,
-                end_datetime=end or (start + timedelta(hours=6)),
-                source_url=url,
-                discovered_at=discovered_at,
-                timezone="Europe/Prague",
-                distribution="online",
-            ))
+        seen_youtube: set[str] = set()
+
+        for target in self.TARGETS:
+            event_response = self._fetch(target["url"])
+            stream_links = self.parse_atletika_stream_links(event_response.text, event_response.url)
+            for stream_link in stream_links:
+                youtube_url = self._resolve_youtube_url(stream_link)
+                if not youtube_url or youtube_url in seen_youtube:
+                    continue
+                seen_youtube.add(youtube_url)
+
+                watch_response = self._fetch(youtube_url)
+                start, end, watch_title = self.parse_watch_html(watch_response.text)
+                if start is None:
+                    # ČAS confirms a stream exists, but without a usable broadcast time
+                    # it cannot safely enter time-based matching/reporting yet.
+                    continue
+
+                programs.append(TVProgram(
+                    source=self.source,
+                    source_id=youtube_url,
+                    channel="YouTube",
+                    title=watch_title or target["competition"],
+                    description=f"Oficiální ČAS stream: {target['competition']}",
+                    start_datetime=start,
+                    end_datetime=end or (start + timedelta(hours=6)),
+                    source_url=youtube_url,
+                    discovered_at=discovered_at,
+                    timezone="Europe/Prague",
+                    distribution="online",
+                ))
+
         programs.sort(key=lambda item: item.start_datetime)
         return programs
