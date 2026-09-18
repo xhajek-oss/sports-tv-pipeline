@@ -305,3 +305,76 @@ def test_fuzzy_matching_does_not_confuse_different_prague_clubs():
     assert result.status == "no_match"
     assert result.score == 0
     assert result.reasons == ("team_conflict",)
+
+
+def test_generic_hockey_block_is_not_enough_for_overlapping_same_competition_games(tmp_path):
+    db = tmp_path / "matcher.db"
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE sports_events (
+            id INTEGER PRIMARY KEY, source TEXT, source_id TEXT, sport TEXT,
+            competition TEXT, name TEXT, start_datetime TEXT, end_datetime TEXT,
+            location TEXT, country TEXT, source_url TEXT, discovered_at TEXT, timezone TEXT
+        );
+        CREATE TABLE tv_programs (
+            id INTEGER PRIMARY KEY, source TEXT, source_id TEXT, channel TEXT,
+            title TEXT, description TEXT, start_datetime TEXT, end_datetime TEXT,
+            source_url TEXT, discovered_at TEXT, timezone TEXT, distribution TEXT
+        );
+    """)
+    for event_id, name, start in (
+        (1, "HC Kometa Brno - HC Dynamo Pardubice", "2026-09-27T15:00:00+00:00"),
+        (2, "HC Vítkovice Ridera - BK Mladá Boleslav", "2026-09-27T14:30:00+00:00"),
+    ):
+        conn.execute(
+            """INSERT INTO sports_events
+               (id, source, source_id, sport, competition, name, start_datetime,
+                end_datetime, location, country, source_url, discovered_at, timezone)
+               VALUES (?, 'test', ?, 'hockey', 'ELH', ?, ?, NULL, NULL, 'Czechia',
+                       '', '', 'Europe/Prague')""",
+            (event_id, str(event_id), name, start),
+        )
+    conn.execute(
+        """INSERT INTO tv_programs
+           (id, source, source_id, channel, title, description, start_datetime,
+            end_datetime, source_url, discovered_at, timezone, distribution)
+           VALUES (1, 'idnes', 'ct2', 'ČT2', 'Hokej: Tipsport ELH 2026/2027',
+                   'Přímý přenos', '2026-09-27T14:00:00+00:00',
+                   '2026-09-27T17:00:00+00:00', '', '', 'Europe/Prague', 'tv')"""
+    )
+    conn.commit()
+    conn.close()
+
+    from matching.tv_matcher import TVMatcher
+    assert TVMatcher(db).find_candidates(min_score=70) == []
+
+
+def test_generic_hockey_block_can_match_when_only_one_fixture_overlaps(tmp_path):
+    db = tmp_path / "matcher.db"
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE sports_events (
+            id INTEGER PRIMARY KEY, source TEXT, source_id TEXT, sport TEXT,
+            competition TEXT, name TEXT, start_datetime TEXT, end_datetime TEXT,
+            location TEXT, country TEXT, source_url TEXT, discovered_at TEXT, timezone TEXT
+        );
+        CREATE TABLE tv_programs (
+            id INTEGER PRIMARY KEY, source TEXT, source_id TEXT, channel TEXT,
+            title TEXT, description TEXT, start_datetime TEXT, end_datetime TEXT,
+            source_url TEXT, discovered_at TEXT, timezone TEXT, distribution TEXT
+        );
+        INSERT INTO sports_events VALUES
+          (1,'test','1','hockey','ELH','HC Kometa Brno - HC Dynamo Pardubice',
+           '2026-09-27T15:00:00+00:00',NULL,NULL,'Czechia','','','Europe/Prague');
+        INSERT INTO tv_programs VALUES
+          (1,'idnes','ct2','ČT2','Hokej: Tipsport ELH 2026/2027','Přímý přenos',
+           '2026-09-27T14:00:00+00:00','2026-09-27T17:00:00+00:00','','',
+           'Europe/Prague','tv');
+    """)
+    conn.commit()
+    conn.close()
+
+    from matching.tv_matcher import TVMatcher
+    candidates = TVMatcher(db).find_candidates(min_score=70)
+    assert len(candidates) == 1
+    assert candidates[0].sports_event_id == 1
