@@ -57,3 +57,69 @@ def test_stream_source_reuses_selected_czech_senior_discovery():
         "Mistrovství ČR",
         "Halové mistrovství ČR",
     }
+
+
+def test_fetch_atletika_never_follows_external_redirect(monkeypatch):
+    scraper = CzechAthleticsYouTubeScraper()
+    calls = []
+
+    class Response:
+        is_redirect = True
+        is_permanent_redirect = False
+        headers = {"Location": "https://www.youtube.com/watch?v=abc123"}
+        text = ""
+        url = "https://www.atletika.cz/stream/"
+        def raise_for_status(self):
+            return None
+
+    def fake_get(url, **kwargs):
+        calls.append((url, kwargs))
+        return Response()
+
+    monkeypatch.setattr(scraper.session, "get", fake_get)
+    response = scraper._fetch_atletika("https://www.atletika.cz/stream/")
+
+    assert len(calls) == 1
+    assert calls[0][0] == "https://www.atletika.cz/stream/"
+    assert calls[0][1]["allow_redirects"] is False
+    assert response._atletika_external_redirect == "https://www.youtube.com/watch?v=abc123"
+
+
+def test_resolver_returns_youtube_redirect_without_requesting_youtube(monkeypatch):
+    scraper = CzechAthleticsYouTubeScraper()
+    requested = []
+
+    class Response:
+        is_redirect = True
+        is_permanent_redirect = False
+        headers = {"Location": "https://youtu.be/abc123"}
+        text = ""
+        url = "https://www.atletika.cz/stream/"
+        def raise_for_status(self):
+            return None
+
+    def fake_get(url, **kwargs):
+        requested.append(url)
+        if "youtube" in url or "youtu.be" in url:
+            raise AssertionError("YouTube must never be requested")
+        return Response()
+
+    monkeypatch.setattr(scraper.session, "get", fake_get)
+    assert scraper._resolve_stream_from_atletika("https://www.atletika.cz/stream/") == "https://youtu.be/abc123"
+    assert requested == ["https://www.atletika.cz/stream/"]
+
+
+def test_fetch_atletika_rejects_direct_youtube_url(monkeypatch):
+    scraper = CzechAthleticsYouTubeScraper()
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("HTTP client must not be called")
+
+    monkeypatch.setattr(scraper.session, "get", forbidden)
+
+    try:
+        scraper._fetch_atletika("https://www.youtube.com/watch?v=abc123")
+    except ValueError as exc:
+        assert "Refusing non-Atletika.cz request" in str(exc)
+    else:
+        raise AssertionError("Expected non-Atletika.cz URL to be rejected")
