@@ -79,8 +79,8 @@ def test_each_tv_and_online_source_has_its_own_icon_without_epg_times():
 
 
 def test_dedupes_adjacent_epg_blocks_for_same_normalized_channel():
-    first = broadcast(start="2026-09-18T16:45:00", channel="Oneplay Sport 2")
-    later = broadcast(start="2026-09-18T17:30:00", channel="Oneplay Sport 2 HD")
+    first = Broadcast(**{**broadcast(start="2026-09-18T16:45:00", channel="Oneplay Sport 2").__dict__, "tv_title": "HC Dynamo Pardubice - Rögle BK"})
+    later = Broadcast(**{**broadcast(start="2026-09-18T17:30:00", channel="Oneplay Sport 2 HD").__dict__, "tv_title": "HC Dynamo Pardubice - Rögle BK"})
     rows = _dedupe_broadcasts([later, first])
     assert len(rows) == 1
     assert rows[0].channel == "Oneplay Sport 2"
@@ -144,6 +144,7 @@ def test_specific_oneplay_fixture_keeps_numbered_channel():
                 channel="Oneplay Sport 2",
             ).__dict__,
             "competition": "Tipsport extraliga",
+            "event_name": "HC Verva Litvínov - HC Dynamo Pardubice",
             "tv_title": "HC Verva Litvínov - HC Dynamo Pardubice",
             "tv_description": "",
         }
