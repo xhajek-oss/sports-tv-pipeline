@@ -116,6 +116,7 @@ def _tv_matches(db_path: str | Path) -> dict[int, tuple[Broadcast, ...]]:
                 channel=tv["channel"] or "",
                 distribution=(tv["distribution"] or "tv").lower(),
                 tv_title=tv["title"] or "",
+                tv_description=tv["description"] or "",
             )
         )
     return {event_id: _dedupe_broadcasts(rows) for event_id, rows in grouped.items()}
