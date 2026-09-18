@@ -8,27 +8,27 @@ PRAGUE = ZoneInfo("Europe/Prague")
 
 def broadcast(*, start: str, channel: str, distribution: str = "tv") -> Broadcast:
     dt = datetime.fromisoformat(start).replace(tzinfo=PRAGUE)
-    return Broadcast(event_id=1, sport="hockey", competition="Liga mistrů", event_name="HC Dynamo Pardubice - Rögle BK", location=None, country=None, source_url="https://example.test", tv_start=dt, tv_end=None, channel=channel, distribution=distribution, tv_title="Hokej")
+    return Broadcast(
+        event_id=1,
+        sport="hockey",
+        competition="Liga mistrů",
+        event_name="HC Dynamo Pardubice - Rögle BK",
+        location=None,
+        country=None,
+        source_url="https://example.test",
+        tv_start=dt,
+        tv_end=None,
+        channel=channel,
+        distribution=distribution,
+        tv_title="Hokej",
+    )
 
 
 def test_replay_terms_are_rejected():
     assert _is_replay("Hokej: Archiv Z")
-    assert _is_replay("Atletika", "Opakování včerejšího závodu")
+    assert _is_replay("Atletika - záznam")
+    assert _is_replay("Hokej", "Opakování večerního utkání")
     assert not _is_replay("Hokej: BULY START ŽIVĚ")
-
-
-def test_adjacent_epg_blocks_on_same_channel_are_one_live_source():
-    studio = broadcast(start="2026-09-16T17:15:00", channel="Oneplay Sport 4")
-    game = broadcast(start="2026-09-16T18:00:00", channel="Oneplay Sport 4 HD")
-    other = broadcast(start="2026-09-16T17:15:00", channel="Oneplay Sport 2")
-    result = _dedupe_broadcasts([game, studio, other])
-    assert [(b.channel, b.tv_start.strftime("%H:%M")) for b in result] == [("Oneplay Sport 2", "17:15"), ("Oneplay Sport 4", "17:15")]
-
-
-def test_same_name_tv_and_online_are_kept_separately():
-    tv = broadcast(start="2026-09-16T17:15:00", channel="ČT sport")
-    online = broadcast(start="2026-09-16T17:15:00", channel="ČT sport", distribution="online")
-    assert len(_dedupe_broadcasts([tv, online])) == 2
 
 
 def test_biathlon_names_are_czech():
@@ -37,43 +37,80 @@ def test_biathlon_names_are_czech():
     assert _biathlon_name_cs("SINGLE MIXED RELAY (W+M)") == "Smíšená štafeta dvojic"
 
 
-def test_format_digest_uses_sports_event_time_and_media_types():
+def test_format_digest_uses_sports_event_time_and_channel_only_media():
     tv = broadcast(start="2026-09-05T17:45:00", channel="ČT sport")
     online = broadcast(start="2026-09-05T17:55:00", channel="ČT sport Plus", distribution="online")
     event_start = datetime(2026, 9, 5, 18, 0, tzinfo=PRAGUE)
-    item = DigestItem(key="event|1", sport="hockey", competition="Liga mistrů", title="HC Dynamo Pardubice – Rögle BK (Švédsko)", location=None, country=None, start=event_start, broadcasts=(tv, online))
+    item = DigestItem(
+        key="event|1", sport="hockey", competition="Liga mistrů",
+        title="HC Dynamo Pardubice – Rögle BK (Švédsko)", location=None, country=None,
+        start=event_start, broadcasts=(tv, online),
+    )
+
     text = format_digest([item], day=date(2026, 9, 5))
+
     assert text is not None
-    assert text.startswith("Sobota 5. září
-
-🏒 <b>HOKEJ</b>")
-    assert "🏆 Liga mistrů
-<b>18:00</b>" in text
+    assert text.startswith("Sobota 5. září\n\n🏒 <b>HOKEJ</b>")
+    assert "🏆 Liga mistrů\n<b>18:00</b>" in text
     assert "📺 ČT sport" in text
-    assert "od 17:45" not in text
     assert "💻 ČT sport Plus" in text
-    assert "od 17:55" not in text
+    assert "17:45" not in text
+    assert "17:55" not in text
 
 
-def test_each_tv_and_online_source_has_its_own_icon():
+def test_each_tv_and_online_source_has_its_own_icon_without_epg_times():
     tv1 = broadcast(start="2026-09-05T17:45:00", channel="ČT2")
     tv2 = broadcast(start="2026-09-05T19:00:00", channel="ČT sport")
     online1 = broadcast(start="2026-09-05T17:45:00", channel="iVysílání", distribution="online")
     online2 = broadcast(start="2026-09-05T18:00:00", channel="Eurovision Sport", distribution="online")
-    item = DigestItem(key="event|1", sport="hockey", competition="Liga mistrů", title="HC Dynamo Pardubice – Rögle BK (Švédsko)", location=None, country=None, start=tv1.tv_start, broadcasts=(tv1, tv2, online1, online2))
+    item = DigestItem(
+        key="event|1", sport="hockey", competition="Liga mistrů",
+        title="HC Dynamo Pardubice – Rögle BK (Švédsko)", location=None, country=None,
+        start=datetime(2026, 9, 5, 17, 30, tzinfo=PRAGUE),
+        broadcasts=(tv1, tv2, online1, online2),
+    )
+
     text = format_digest([item], day=date(2026, 9, 5))
+
+    assert text is not None
     assert "📺 ČT2 • 📺 ČT sport" in text
     assert "💻 iVysílání • 💻 Eurovision Sport" in text
+    assert "19:00" not in text
+
+
+def test_dedupes_adjacent_epg_blocks_for_same_normalized_channel():
+    first = broadcast(start="2026-09-18T16:45:00", channel="Oneplay Sport 2")
+    later = broadcast(start="2026-09-18T17:30:00", channel="Oneplay Sport 2 HD")
+    rows = _dedupe_broadcasts([later, first])
+    assert len(rows) == 1
+    assert rows[0].channel == "Oneplay Sport 2"
+    assert rows[0].tv_start == first.tv_start
+
+
+def test_same_channel_tv_and_online_are_kept_separately():
+    tv = broadcast(start="2026-09-18T17:30:00", channel="ČT sport")
+    online = broadcast(start="2026-09-18T17:30:00", channel="ČT sport", distribution="online")
+    rows = _dedupe_broadcasts([tv, online])
+    assert len(rows) == 2
 
 
 def test_biathlon_shared_channel_is_printed_once():
     b1 = broadcast(start="2026-12-05T11:30:00", channel="ČT sport")
     b2 = Broadcast(**{**b1.__dict__, "event_id": 2})
-    first = DigestItem(key="event|1", sport="biathlon", competition="Světový pohár", title="Stíhací závod žen 10 km", location="Hochfilzen", country="Rakousko", start=b1.tv_start, broadcasts=(b1,))
-    second = DigestItem(key="event|2", sport="biathlon", competition="Světový pohár", title="Stíhací závod mužů 12,5 km", location="Hochfilzen", country="Rakousko", start=b2.tv_start, broadcasts=(b2,))
+    first = DigestItem(
+        key="event|1", sport="biathlon", competition="Světový pohár",
+        title="Stíhací závod žen 10 km", location="Hochfilzen", country="Rakousko",
+        start=b1.tv_start, broadcasts=(b1,),
+    )
+    second = DigestItem(
+        key="event|2", sport="biathlon", competition="Světový pohár",
+        title="Stíhací závod mužů 12,5 km", location="Hochfilzen", country="Rakousko",
+        start=b2.tv_start, broadcasts=(b2,),
+    )
+
     text = format_digest([first, second], day=date(2026, 12, 5))
+
     assert text is not None
-    assert "Hochfilzen (Rakousko)
-<b>11:30</b>" in text
+    assert "Hochfilzen (Rakousko)\n<b>11:30</b>" in text
     assert text.count("📺 ČT sport") == 1
     assert text.count("Hochfilzen (Rakousko)") == 1
