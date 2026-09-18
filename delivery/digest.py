@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from matching.tv_matcher import TVMatcher, _hockey_matchups
+from matching.tv_matcher import TVMatcher, _hockey_matchup, _hockey_matchups, _hockey_matchups_equivalent
 
 PRAGUE = ZoneInfo("Europe/Prague")
 UTC = timezone.utc
@@ -273,43 +273,60 @@ def _group_key(b: Broadcast, local_day: date) -> str:
     return f"event|{b.event_id}"
 
 
-def _delivery_channel(row: Broadcast) -> str:
-    """Return a specific channel only when the EPG identifies one fixture.
-
-    Oneplay uses aggregate Extraliga blocks that can contain several concurrent
-    fixtures. Their numbered EPG channel is not a reliable prediction of the
-    eventual per-match route, so delivery intentionally falls back to the
-    generic MD label instead of guessing a channel number.
-    """
+def _oneplay_channel_evidence(row: Broadcast) -> tuple[str, bool]:
+    """Return normalized channel and whether it explicitly identifies this fixture."""
     channel = _channel_name(row.channel)
     if row.sport != "hockey" or not _norm(channel).startswith("oneplay sport"):
-        return channel
-    evidence = "\n".join((row.tv_title, row.tv_description))
-    if len(_hockey_matchups(evidence)) > 1:
+        return channel, False
+    event_matchup = _hockey_matchup(row.event_name)
+    evidence_matchups = _hockey_matchups("\n".join((row.tv_title, row.tv_description)))
+    specific = bool(
+        event_matchup
+        and len(evidence_matchups) == 1
+        and _hockey_matchups_equivalent(event_matchup, evidence_matchups[0])
+    )
+    return channel, specific
+
+
+def _delivery_channel(row: Broadcast) -> str:
+    """Use a numbered Oneplay channel only for fixture-specific EPG evidence."""
+    channel, specific = _oneplay_channel_evidence(row)
+    if row.sport == "hockey" and _norm(channel).startswith("oneplay sport") and not specific:
         return "Oneplay Sport MD"
     return channel
 
-
 def _dedupe_broadcasts(rows: list[Broadcast]) -> tuple[Broadcast, ...]:
-    """Keep one live entry per normalized distribution/channel for an event.
+    """Deduplicate broadcasts, preferring fixture-specific Oneplay routing.
 
-    EPG providers may split one transmission into studio/game blocks. For
-    delivery this is still one source, so keep the earliest matching block.
-    Distinct channels and TV/online distributions remain separate.
+    A concrete numbered Oneplay channel backed by exactly one matching fixture
+    is stronger evidence than aggregate/ambiguous Oneplay blocks. MD is kept
+    only when no such specific route exists.
     """
-    best: dict[tuple[str, str], Broadcast] = {}
+    normalized_rows: list[Broadcast] = []
+    oneplay_specific = False
     for row in sorted(rows, key=lambda x: x.tv_start):
-        channel = _delivery_channel(row)
-        normalized = Broadcast(
+        channel, specific = _oneplay_channel_evidence(row)
+        is_oneplay = row.sport == "hockey" and _norm(channel).startswith("oneplay sport")
+        oneplay_specific = oneplay_specific or (is_oneplay and specific)
+        delivery_channel = channel if (not is_oneplay or specific) else "Oneplay Sport MD"
+        normalized_rows.append(Broadcast(
             event_id=row.event_id, sport=row.sport, competition=row.competition,
             event_name=row.event_name, location=row.location, country=row.country,
             source_url=row.source_url, tv_start=row.tv_start, tv_end=row.tv_end,
-            channel=channel, distribution=row.distribution, tv_title=row.tv_title,
+            channel=delivery_channel, distribution=row.distribution, tv_title=row.tv_title,
             tv_description=row.tv_description,
-        )
-        best.setdefault((normalized.distribution, normalized.channel), normalized)
-    return tuple(sorted(best.values(), key=lambda x: (x.tv_start, x.distribution != "tv", x.channel)))
+        ))
 
+    if oneplay_specific:
+        normalized_rows = [
+            row for row in normalized_rows
+            if not (_norm(row.channel) == "oneplay sport md" and row.distribution == "tv")
+        ]
+
+    best: dict[tuple[str, str], Broadcast] = {}
+    for row in normalized_rows:
+        best.setdefault((row.distribution, row.channel), row)
+    return tuple(sorted(best.values(), key=lambda x: (x.tv_start, x.distribution != "tv", x.channel)))
 
 def collect_today_items(
     db_path: str | Path = "data/sports_events.db", *, now: datetime | None = None,
