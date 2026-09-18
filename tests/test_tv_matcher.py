@@ -349,7 +349,7 @@ def test_generic_hockey_block_is_not_enough_for_overlapping_same_competition_gam
     assert TVMatcher(db).find_candidates(min_score=70) == []
 
 
-def test_generic_hockey_block_can_match_when_only_one_fixture_overlaps(tmp_path):
+def test_generic_hockey_block_is_rejected_even_when_tracked_db_has_one_fixture(tmp_path):
     db = tmp_path / "matcher.db"
     conn = sqlite3.connect(db)
     conn.executescript("""
@@ -375,6 +375,6 @@ def test_generic_hockey_block_can_match_when_only_one_fixture_overlaps(tmp_path)
     conn.close()
 
     from matching.tv_matcher import TVMatcher
-    candidates = TVMatcher(db).find_candidates(min_score=70)
-    assert len(candidates) == 1
-    assert candidates[0].sports_event_id == 1
+    # The tracked sports DB is not a complete league schedule, so a single
+    # tracked fixture does not prove that a generic EPG block belongs to it.
+    assert TVMatcher(db).find_candidates(min_score=70) == []
