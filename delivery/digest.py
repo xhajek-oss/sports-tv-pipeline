@@ -279,14 +279,14 @@ def _delivery_channel(row: Broadcast) -> str:
     Oneplay uses aggregate Extraliga blocks that can contain several concurrent
     fixtures. Their numbered EPG channel is not a reliable prediction of the
     eventual per-match route, so delivery intentionally falls back to the
-    provider label instead of guessing a channel number.
+    generic MD label instead of guessing a channel number.
     """
     channel = _channel_name(row.channel)
     if row.sport != "hockey" or not _norm(channel).startswith("oneplay sport"):
         return channel
     evidence = "\n".join((row.tv_title, row.tv_description))
     if len(_hockey_matchups(evidence)) > 1:
-        return "Oneplay Sport"
+        return "Oneplay Sport MD"
     return channel
 
 
