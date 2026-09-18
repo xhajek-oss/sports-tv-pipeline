@@ -112,3 +112,57 @@ def test_weekly_report_keeps_event_without_tv_channel():
 
 def test_weekly_report_returns_none_for_no_events():
     assert format_weekly_report([], monday=date(2026, 9, 7), sunday=date(2026, 9, 13)) is None
+
+
+def test_weekly_ambiguous_oneplay_channels_collapse_to_single_md_label():
+    event_start = datetime(2026, 9, 22, 18, 0, tzinfo=PRAGUE)
+    description = (
+        "HC Dynamo Pardubice - Bílí Tygři Liberec; "
+        "HC Sparta Praha - HC Kometa Brno"
+    )
+
+    def oneplay(channel: str) -> Broadcast:
+        return Broadcast(
+            event_id=10,
+            sport="hockey",
+            competition="Tipsport extraliga",
+            event_name="HC Dynamo Pardubice - Bílí Tygři Liberec",
+            location=None,
+            country=None,
+            source_url="https://example.test",
+            tv_start=event_start,
+            tv_end=None,
+            channel=channel,
+            distribution="tv",
+            tv_title="Tipsport extraliga",
+            tv_description=description,
+        )
+
+    from delivery.digest import _dedupe_broadcasts
+
+    broadcasts = _dedupe_broadcasts([
+        oneplay("Oneplay Sport 2"),
+        oneplay("Oneplay Sport 3"),
+    ])
+    assert len(broadcasts) == 1
+    assert broadcasts[0].channel == "Oneplay Sport MD"
+
+    event = WeeklyEvent(
+        event_id=10,
+        sport="hockey",
+        competition="Extraliga",
+        name="HC Dynamo Pardubice – Bílí Tygři Liberec",
+        start=event_start,
+        location=None,
+        country=None,
+        broadcasts=broadcasts,
+    )
+    text = format_weekly_report(
+        [event], monday=date(2026, 9, 21), sunday=date(2026, 9, 27)
+    )
+
+    assert text is not None
+    assert "📺 Oneplay Sport MD" in text
+    assert "Oneplay Sport 2" not in text
+    assert "Oneplay Sport 3" not in text
+    assert text.count("📺 Oneplay Sport MD") == 1
