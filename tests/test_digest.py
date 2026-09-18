@@ -151,3 +151,56 @@ def test_specific_oneplay_fixture_keeps_numbered_channel():
     rows = _dedupe_broadcasts([row])
     assert len(rows) == 1
     assert rows[0].channel == "Oneplay Sport 2"
+
+
+def test_specific_oneplay_route_suppresses_ambiguous_md_evidence():
+    base = broadcast(start="2026-09-22T17:50:00", channel="Oneplay Sport 3")
+    specific = Broadcast(**{
+        **base.__dict__,
+        "event_name": "HC Dynamo Pardubice - Bílí Tygři Liberec",
+        "competition": "Tipsport extraliga",
+        "tv_title": "ELH: HC Dynamo Pardubice - Bílí Tygři Liberec",
+        "tv_description": "",
+    })
+    ambiguous = Broadcast(**{
+        **base.__dict__,
+        "channel": "Oneplay Sport 2",
+        "event_name": "HC Dynamo Pardubice - Bílí Tygři Liberec",
+        "competition": "Tipsport extraliga",
+        "tv_title": "Tipsport extraliga",
+        "tv_description": (
+            "HC Dynamo Pardubice - Bílí Tygři Liberec; "
+            "HC Sparta Praha - BK Mladá Boleslav"
+        ),
+    })
+
+    rows = _dedupe_broadcasts([ambiguous, specific])
+    assert [row.channel for row in rows] == ["Oneplay Sport 3"]
+
+
+def test_oneplay_md_is_used_only_when_no_fixture_specific_route_exists():
+    base = broadcast(start="2026-09-22T17:50:00", channel="Oneplay Sport 2")
+    rows = _dedupe_broadcasts([
+        Broadcast(**{
+            **base.__dict__,
+            "event_name": "HC Dynamo Pardubice - Bílí Tygři Liberec",
+            "competition": "Tipsport extraliga",
+            "tv_title": "Tipsport extraliga",
+            "tv_description": (
+                "HC Dynamo Pardubice - Bílí Tygři Liberec; "
+                "HC Sparta Praha - BK Mladá Boleslav"
+            ),
+        }),
+        Broadcast(**{
+            **base.__dict__,
+            "channel": "Oneplay Sport 3",
+            "event_name": "HC Dynamo Pardubice - Bílí Tygři Liberec",
+            "competition": "Tipsport extraliga",
+            "tv_title": "Tipsport extraliga",
+            "tv_description": (
+                "HC Dynamo Pardubice - Bílí Tygři Liberec; "
+                "HC Sparta Praha - BK Mladá Boleslav"
+            ),
+        }),
+    ])
+    assert [row.channel for row in rows] == ["Oneplay Sport MD"]
