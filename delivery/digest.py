@@ -303,6 +303,7 @@ def collect_today_items(
     )
 
     grouped: dict[str, list[Broadcast]] = defaultdict(list)
+    event_starts: dict[str, datetime] = {}
     for _, event, tv in details:
         tv_start = _parse_dt(tv["start_datetime"])
         if tv_start is None or tv_start.astimezone(PRAGUE).date() != today:
@@ -323,7 +324,12 @@ def collect_today_items(
             distribution=(tv["distribution"] or "tv").lower(),
             tv_title=tv["title"] or "",
         )
-        grouped[_group_key(b, today)].append(b)
+        key = _group_key(b, today)
+        grouped[key].append(b)
+        event_start = _parse_dt(event["start_datetime"])
+        if event_start is not None:
+            local_event_start = event_start.astimezone(PRAGUE)
+            event_starts[key] = min(event_starts.get(key, local_event_start), local_event_start)
 
     items: list[DigestItem] = []
     for key, rows in grouped.items():
@@ -340,7 +346,7 @@ def collect_today_items(
             title, location, country = _athletics_title(first), None, None
         items.append(DigestItem(
             key=key, sport=first.sport, competition=_competition_cs(first), title=title,
-            location=location, country=country, start=min(b.tv_start for b in broadcasts),
+            location=location, country=country, start=event_starts[key],
             broadcasts=broadcasts,
         ))
     return items
