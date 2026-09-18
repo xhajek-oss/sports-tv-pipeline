@@ -114,3 +114,40 @@ def test_biathlon_shared_channel_is_printed_once():
     assert "Hochfilzen (Rakousko)\n<b>11:30</b>" in text
     assert text.count("📺 ČT sport") == 1
     assert text.count("Hochfilzen (Rakousko)") == 1
+
+
+def test_ambiguous_oneplay_multi_game_block_uses_provider_label_only():
+    row = Broadcast(
+        **{
+            **broadcast(
+                start="2026-09-18T16:45:00",
+                channel="Oneplay Sport 2",
+            ).__dict__,
+            "competition": "Tipsport extraliga",
+            "tv_title": "Tipsport extraliga",
+            "tv_description": (
+                "HC Verva Litvínov - HC Dynamo Pardubice; "
+                "HC Sparta Praha - HC Kometa Brno"
+            ),
+        }
+    )
+    rows = _dedupe_broadcasts([row])
+    assert len(rows) == 1
+    assert rows[0].channel == "Oneplay Sport"
+
+
+def test_specific_oneplay_fixture_keeps_numbered_channel():
+    row = Broadcast(
+        **{
+            **broadcast(
+                start="2026-09-18T17:30:00",
+                channel="Oneplay Sport 2",
+            ).__dict__,
+            "competition": "Tipsport extraliga",
+            "tv_title": "HC Verva Litvínov - HC Dynamo Pardubice",
+            "tv_description": "",
+        }
+    )
+    rows = _dedupe_broadcasts([row])
+    assert len(rows) == 1
+    assert rows[0].channel == "Oneplay Sport 2"
