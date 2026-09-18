@@ -37,10 +37,10 @@ def test_biathlon_names_are_czech():
     assert _biathlon_name_cs("SINGLE MIXED RELAY (W+M)") == "Smíšená štafeta dvojic"
 
 
-def test_format_digest_uses_real_broadcast_time_and_media_types():
+def test_format_digest_uses_sports_event_time_and_media_types():
     tv = broadcast(start="2026-09-05T17:45:00", channel="ČT sport")
     online = broadcast(start="2026-09-05T17:55:00", channel="ČT sport Plus", distribution="online")
-    item = DigestItem(key="event|1", sport="hockey", competition="Liga mistrů", title="HC Dynamo Pardubice – Rögle BK (Švédsko)", location=None, country=None, start=tv.tv_start, broadcasts=(tv, online))
+    event_start = datetime(2026, 9, 5, 18, 0, tzinfo=PRAGUE)\n    item = DigestItem(key="event|1", sport="hockey", competition="Liga mistrů", title="HC Dynamo Pardubice – Rögle BK (Švédsko)", location=None, country=None, start=event_start, broadcasts=(tv, online))
     text = format_digest([item], day=date(2026, 9, 5))
     assert text is not None
     assert text.startswith("Sobota 5. září\n\n🏒 <b>HOKEJ</b>")
