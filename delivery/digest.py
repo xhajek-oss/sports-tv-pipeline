@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from matching.tv_matcher import TVMatcher
+from matching.tv_matcher import TVMatcher, _hockey_matchups
 
 PRAGUE = ZoneInfo("Europe/Prague")
 UTC = timezone.utc
@@ -84,6 +84,7 @@ class Broadcast:
     channel: str
     distribution: str
     tv_title: str
+    tv_description: str = ""
 
 
 @dataclass(frozen=True)
@@ -272,6 +273,23 @@ def _group_key(b: Broadcast, local_day: date) -> str:
     return f"event|{b.event_id}"
 
 
+def _delivery_channel(row: Broadcast) -> str:
+    """Return a specific channel only when the EPG identifies one fixture.
+
+    Oneplay uses aggregate Extraliga blocks that can contain several concurrent
+    fixtures. Their numbered EPG channel is not a reliable prediction of the
+    eventual per-match route, so delivery intentionally falls back to the
+    provider label instead of guessing a channel number.
+    """
+    channel = _channel_name(row.channel)
+    if row.sport != "hockey" or not _norm(channel).startswith("oneplay sport"):
+        return channel
+    evidence = "\n".join((row.tv_title, row.tv_description))
+    if len(_hockey_matchups(evidence)) > 1:
+        return "Oneplay Sport"
+    return channel
+
+
 def _dedupe_broadcasts(rows: list[Broadcast]) -> tuple[Broadcast, ...]:
     """Keep one live entry per normalized distribution/channel for an event.
 
@@ -281,12 +299,13 @@ def _dedupe_broadcasts(rows: list[Broadcast]) -> tuple[Broadcast, ...]:
     """
     best: dict[tuple[str, str], Broadcast] = {}
     for row in sorted(rows, key=lambda x: x.tv_start):
-        channel = _channel_name(row.channel)
+        channel = _delivery_channel(row)
         normalized = Broadcast(
             event_id=row.event_id, sport=row.sport, competition=row.competition,
             event_name=row.event_name, location=row.location, country=row.country,
             source_url=row.source_url, tv_start=row.tv_start, tv_end=row.tv_end,
             channel=channel, distribution=row.distribution, tv_title=row.tv_title,
+            tv_description=row.tv_description,
         )
         best.setdefault((normalized.distribution, normalized.channel), normalized)
     return tuple(sorted(best.values(), key=lambda x: (x.tv_start, x.distribution != "tv", x.channel)))
@@ -323,6 +342,7 @@ def collect_today_items(
             channel=tv["channel"] or "",
             distribution=(tv["distribution"] or "tv").lower(),
             tv_title=tv["title"] or "",
+            tv_description=tv["description"] or "",
         )
         key = _group_key(b, today)
         grouped[key].append(b)
