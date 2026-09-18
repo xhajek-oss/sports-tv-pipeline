@@ -44,10 +44,15 @@ def test_format_digest_uses_sports_event_time_and_media_types():
     item = DigestItem(key="event|1", sport="hockey", competition="Liga mistrů", title="HC Dynamo Pardubice – Rögle BK (Švédsko)", location=None, country=None, start=event_start, broadcasts=(tv, online))
     text = format_digest([item], day=date(2026, 9, 5))
     assert text is not None
-    assert text.startswith("Sobota 5. září\n\n🏒 <b>HOKEJ</b>")
-    assert "🏆 Liga mistrů\n<b>18:00</b>" in text
-    assert "📺 ČT sport" in text\n    assert "od 17:45" not in text
-    assert "💻 ČT sport Plus" in text\n    assert "od 17:55" not in text
+    assert text.startswith("Sobota 5. září
+
+🏒 <b>HOKEJ</b>")
+    assert "🏆 Liga mistrů
+<b>18:00</b>" in text
+    assert "📺 ČT sport" in text
+    assert "od 17:45" not in text
+    assert "💻 ČT sport Plus" in text
+    assert "od 17:55" not in text
 
 
 def test_each_tv_and_online_source_has_its_own_icon():
@@ -68,6 +73,7 @@ def test_biathlon_shared_channel_is_printed_once():
     second = DigestItem(key="event|2", sport="biathlon", competition="Světový pohár", title="Stíhací závod mužů 12,5 km", location="Hochfilzen", country="Rakousko", start=b2.tv_start, broadcasts=(b2,))
     text = format_digest([first, second], day=date(2026, 12, 5))
     assert text is not None
-    assert "Hochfilzen (Rakousko)\n<b>11:30</b>" in text
+    assert "Hochfilzen (Rakousko)
+<b>11:30</b>" in text
     assert text.count("📺 ČT sport") == 1
     assert text.count("Hochfilzen (Rakousko)") == 1
