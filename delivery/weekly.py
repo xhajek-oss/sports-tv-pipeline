@@ -100,7 +100,7 @@ def _tv_matches(db_path: str | Path) -> dict[int, tuple[Broadcast, ...]]:
         tv_start = _parse_dt(tv["start_datetime"])
         if tv_start is None:
             continue
-        if _is_replay(tv["title"] or "") or not _is_live_timing(event, tv):
+        if _is_replay(tv["title"] or "", tv["description"] or "") or not _is_live_timing(event, tv):
             continue
         grouped[int(event["id"])].append(
             Broadcast(
