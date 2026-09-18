@@ -116,7 +116,7 @@ def test_biathlon_shared_channel_is_printed_once():
     assert text.count("Hochfilzen (Rakousko)") == 1
 
 
-def test_ambiguous_oneplay_multi_game_block_uses_provider_label_only():
+def test_ambiguous_oneplay_multi_game_block_uses_md_label():
     row = Broadcast(
         **{
             **broadcast(
@@ -133,7 +133,7 @@ def test_ambiguous_oneplay_multi_game_block_uses_provider_label_only():
     )
     rows = _dedupe_broadcasts([row])
     assert len(rows) == 1
-    assert rows[0].channel == "Oneplay Sport"
+    assert rows[0].channel == "Oneplay Sport MD"
 
 
 def test_specific_oneplay_fixture_keeps_numbered_channel():
