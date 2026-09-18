@@ -23,10 +23,40 @@ class CzechAthleticsYouTubeScraper:
             "Accept-Language": "cs-CZ,cs;q=0.9,en;q=0.8",
         })
 
+    @staticmethod
+    def _is_atletika(url: str) -> bool:
+        host = urlparse(url).netloc.casefold().split(":", 1)[0]
+        return host == "atletika.cz" or host.endswith(".atletika.cz")
+
     def _fetch_atletika(self, url: str) -> requests.Response:
-        response = self.session.get(url, timeout=self.timeout)
-        response.raise_for_status()
-        return response
+        """Fetch Atletika.cz only; never follow a redirect to another host."""
+        if not self._is_atletika(url):
+            raise ValueError(f"Refusing non-Atletika.cz request: {url}")
+
+        current_url = url
+        for _ in range(5):
+            response = self.session.get(
+                current_url,
+                timeout=self.timeout,
+                allow_redirects=False,
+            )
+            if not response.is_redirect and not response.is_permanent_redirect:
+                response.raise_for_status()
+                return response
+
+            location = response.headers.get("Location")
+            if not location:
+                response.raise_for_status()
+                return response
+            target = urljoin(current_url, location)
+
+            # A redirect target is data, not permission to fetch another site.
+            if not self._is_atletika(target):
+                response._atletika_external_redirect = target
+                return response
+            current_url = target
+
+        raise requests.TooManyRedirects(f"Too many Atletika.cz redirects: {url}")
 
     @staticmethod
     def parse_atletika_stream_links(html: str, page_url: str) -> list[str]:
@@ -66,6 +96,9 @@ class CzechAthleticsYouTubeScraper:
         if self._is_youtube(stream_url):
             return stream_url
         response = self._fetch_atletika(stream_url)
+        external = getattr(response, "_atletika_external_redirect", None)
+        if external:
+            return external if self._is_youtube(external) else None
         return self.resolve_youtube_from_atletika_html(response.text, response.url)
 
     def scrape(self) -> list[TVProgram]:
