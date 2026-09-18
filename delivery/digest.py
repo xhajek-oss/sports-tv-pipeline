@@ -156,8 +156,8 @@ def _channel_name(value: str) -> str:
     return value.strip().removesuffix(" HD")
 
 
-def _is_replay(title: str) -> bool:
-    text = _norm(title)
+def _is_replay(*parts: str | None) -> bool:
+    text = _norm(" ".join(part or "" for part in parts))
     return any(term in text for term in REPLAY_TERMS)
 
 
