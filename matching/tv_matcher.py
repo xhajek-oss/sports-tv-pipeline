@@ -418,36 +418,14 @@ class TVMatcher:
                 if candidate.score < min_score:
                     continue
 
-                # A generic hockey EPG block cannot identify one fixture when
-                # several same-competition games overlap it. Participants are
-                # required in that situation; otherwise assigning the channel
-                # to a concrete game would be a guess.
+                # The sports DB is intentionally not a complete league schedule
+                # (for example it tracks Dynamo, not every ELH fixture). Therefore
+                # absence of another overlapping event can never make a generic
+                # hockey EPG block fixture-specific. Require explicit participants
+                # for every concrete hockey broadcast assignment.
                 event_sport = _sport(_event_text(event)) or _norm(event["sport"])
-                tv_matchups = _hockey_matchups(_tv_raw_text(tv))
-                if event_sport == "hockey" and not tv_matchups:
-                    evidence = _tv_evidence(tv)
-                    event_comp = _competition(_event_text(event))
-                    tv_end = _parse_dt(tv["end_datetime"]) or (tv_start + timedelta(hours=3))
-                    ambiguous = 0
-                    for other in events:
-                        other_start = _parse_dt(other["start_datetime"])
-                        if not other_start:
-                            continue
-                        other_sport = _sport(_event_text(other)) or _norm(other["sport"])
-                        if other_sport != "hockey":
-                            continue
-                        other_comp = _competition(_event_text(other))
-                        if event_comp and other_comp != event_comp:
-                            continue
-                        if evidence.competition and other_comp and evidence.competition != other_comp:
-                            continue
-                        other_end = _parse_dt(other["end_datetime"]) or other_start
-                        if other_start <= tv_end and other_end >= tv_start:
-                            ambiguous += 1
-                            if ambiguous > 1:
-                                break
-                    if ambiguous > 1:
-                        continue
+                if event_sport == "hockey" and not _hockey_matchups(_tv_raw_text(tv)):
+                    continue
 
                 results.append(candidate)
         results.sort(key=lambda x: (-x.score, x.sports_event_id, x.tv_program_id))
