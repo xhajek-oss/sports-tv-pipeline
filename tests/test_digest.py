@@ -45,9 +45,9 @@ def test_format_digest_uses_sports_event_time_and_media_types():
     text = format_digest([item], day=date(2026, 9, 5))
     assert text is not None
     assert text.startswith("Sobota 5. září\n\n🏒 <b>HOKEJ</b>")
-    assert "🏆 Liga mistrů\n<b>17:45</b>" in text
-    assert "📺 ČT sport od 17:45" in text
-    assert "💻 ČT sport Plus od 17:55" in text
+    assert "🏆 Liga mistrů\n<b>18:00</b>" in text
+    assert "📺 ČT sport" in text\n    assert "od 17:45" not in text
+    assert "💻 ČT sport Plus" in text\n    assert "od 17:55" not in text
 
 
 def test_each_tv_and_online_source_has_its_own_icon():
@@ -57,8 +57,8 @@ def test_each_tv_and_online_source_has_its_own_icon():
     online2 = broadcast(start="2026-09-05T18:00:00", channel="Eurovision Sport", distribution="online")
     item = DigestItem(key="event|1", sport="hockey", competition="Liga mistrů", title="HC Dynamo Pardubice – Rögle BK (Švédsko)", location=None, country=None, start=tv1.tv_start, broadcasts=(tv1, tv2, online1, online2))
     text = format_digest([item], day=date(2026, 9, 5))
-    assert "📺 ČT2 • 📺 ČT sport od 19:00" in text
-    assert "💻 iVysílání • 💻 Eurovision Sport od 18:00" in text
+    assert "📺 ČT2 • 📺 ČT sport" in text
+    assert "💻 iVysílání • 💻 Eurovision Sport" in text
 
 
 def test_biathlon_shared_channel_is_printed_once():
