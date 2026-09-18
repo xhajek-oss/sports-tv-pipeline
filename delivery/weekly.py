@@ -172,7 +172,7 @@ def collect_next_week_events(
             continue
 
         broadcasts = tv_by_event.get(int(row["id"]), ())
-        display_start = min((b.tv_start for b in broadcasts), default=local_start)
+        display_start = local_start
         if sport == "hockey":
             name = _hockey_name(row, competition)
         else:
@@ -198,7 +198,7 @@ def collect_next_week_events(
             all_broadcasts.extend(tv_by_event.get(int(row["id"]), ()))
         broadcasts = _dedupe_broadcasts(all_broadcasts) if all_broadcasts else ()
         sports_start = _ultimate_session_start(first_start, competition)
-        display_start = min((b.tv_start for b in broadcasts), default=sports_start)
+        display_start = sports_start
         if location and country:
             name = f"{location} ({country})"
         else:
