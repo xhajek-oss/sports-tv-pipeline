@@ -361,8 +361,7 @@ def _media_lines(broadcasts: tuple[Broadcast, ...], main_start: datetime) -> lis
     for b in broadcasts:
         kind = "online" if b.distribution == "online" else "tv"
         channel = _channel_name(b.channel)
-        suffix = "" if b.tv_start == main_start else f" od {b.tv_start:%H:%M}"
-        grouped[kind].append(f"{html.escape(channel)}{suffix}")
+        grouped[kind].append(html.escape(channel))
     lines: list[str] = []
     if grouped["tv"]:
         lines.append(" • ".join(f"📺 {entry}" for entry in grouped["tv"]))
