@@ -60,15 +60,26 @@ class HealthStateStore:
         return sources if isinstance(sources, dict) else {}
 
     def record(self, result: HealthResult) -> str | None:
-        previous_status = self.previous.get(result.source, {}).get("status")
-        self.current[result.source] = asdict(result)
-        if previous_status is None:
-            return None if result.status == HEALTHY else "new_problem"
-        if previous_status == result.status:
-            return None
-        if result.status == HEALTHY:
-            return "recovered"
-        return "new_problem"
+        previous = self.previous.get(result.source, {})
+        previous_status = previous.get("status")
+        previous_failures = int(previous.get("consecutive_failures", 0))
+        # Legacy states already marked down were previously notified.
+        previous_alerted = bool(previous.get("alerted", previous_status == DOWN))
+        failed = result.status != HEALTHY
+        failures = previous_failures + 1 if failed else 0
+        alerted = previous_alerted if failed else False
+        transition = None
+        if failed and failures >= 2 and not previous_alerted:
+            transition = "new_problem"
+            alerted = True
+        elif not failed and previous_alerted:
+            transition = "recovered"
+        self.current[result.source] = {
+            **asdict(result),
+            "consecutive_failures": failures,
+            "alerted": alerted,
+        }
+        return transition
 
     def keep_unchecked_previous(self) -> None:
         for source, state in self.previous.items():
