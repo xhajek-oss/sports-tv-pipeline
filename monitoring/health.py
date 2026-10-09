@@ -31,7 +31,10 @@ def classify_health(
 ) -> HealthResult:
     now = datetime.now(timezone.utc).isoformat()
     if error is not None:
-        return HealthResult(source, DOWN, count, f"{type(error).__name__}: {error}", now)
+        detail = f"{type(error).__name__}: {error}"
+        if "ERR_NAME_NOT_RESOLVED" in detail or "Temporary failure in name resolution" in detail:
+            return HealthResult(source, WARNING, count, detail, now)
+        return HealthResult(source, DOWN, count, detail, now)
     warning_list = list(warnings)
     if warning_list:
         return HealthResult(source, WARNING, count, "; ".join(warning_list), now)
