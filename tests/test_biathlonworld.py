@@ -75,3 +75,42 @@ def test_calendar_card_context_with_dates():
 def test_winter_calendar_date_is_accepted():
     races = _parse_competitions("Nov 28 2026 Sat 12:00 Women's Sprint Scheduled", "Kontiolahti", "Finland", "https://www.biathlonworld.com/calendar?EventId=BT2627SWRLCP01")
     assert _event_dates_match_calendar_label("26—29 Nov 2026 Kontiolahti", races)
+
+
+def test_official_ibu_races_use_utc_and_race_ids(monkeypatch):
+    import json
+    from scrapers.biathlonworld import _official_event_races
+
+    class Response:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def read(self, size):
+            return json.dumps([
+                {"RaceId": "BT2627SWRLCP01SMIN", "StartTime": "2026-11-26T15:15:00Z"},
+                {"RaceId": "BT2627SWRLCP01SWIN", "StartTime": "2026-11-27T15:15:00Z"},
+            ]).encode()
+
+    monkeypatch.setattr("scrapers.biathlonworld.urlopen", lambda request, timeout: Response())
+    events = _official_event_races("BT2627SWRLCP01", "Kontiolahti", "Finland", "https://example.com")
+    assert [e.source_id for e in events] == ["BT2627SWRLCP01SMIN", "BT2627SWRLCP01SWIN"]
+    assert events[0].start_datetime.isoformat() == "2026-11-26T15:15:00+00:00"
+    assert events[0].timezone == "Europe/Helsinki"
+
+
+def test_official_ibu_rejects_empty_schedule(monkeypatch):
+    import pytest
+    from scrapers.biathlonworld import _official_event_races
+
+    class Response:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def read(self, size):
+            return b"[]"
+
+    monkeypatch.setattr("scrapers.biathlonworld.urlopen", lambda request, timeout: Response())
+    with pytest.raises(RuntimeError, match="no usable official races"):
+        _official_event_races("BT2627SWRLCP01", "Kontiolahti", "Finland", "https://example.com")
