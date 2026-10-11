@@ -1,6 +1,6 @@
 from datetime import timezone
 
-from scrapers.biathlonworld import _parse_competitions, _is_snow_biathlon_event
+from scrapers.biathlonworld import _parse_competitions, _is_snow_biathlon_event, _event_dates_match_calendar_label
 
 
 def test_biathlonworld_parser():
@@ -50,3 +50,10 @@ def test_excludes_roller_and_summer_events():
     assert not _is_snow_biathlon_event("Roller Cup", "Munich", None)
     assert _is_snow_biathlon_event("World Cup", "Kontiolahti", "BT2627SWRLCP01")
     assert _is_snow_biathlon_event("World Cup", "Kontiolahti", "BT2627SWRLCP01".replace("SWRL", "WRL"))
+
+
+def test_stale_calendar_races_rejected():
+    races = _parse_competitions("Oct 17 2026 Sat 09:00 Women's Sprint Scheduled", "Munich", "Germany", "https://www.biathlonworld.com/calendar?EventId=test")
+    assert not _event_dates_match_calendar_label("26—29 Nov 2026 Kontiolahti", races)
+    assert _event_dates_match_calendar_label("17—18 Oct 2026 Munich", races)
+    assert not _event_dates_match_calendar_label("", races)
