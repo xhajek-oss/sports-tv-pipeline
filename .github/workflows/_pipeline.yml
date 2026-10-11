@@ -35,7 +35,7 @@ jobs:
             validation-state-
 
       - name: Restore last successful production snapshot
-        if: inputs.mode == 'production' || inputs.mode == 'digest' || inputs.mode == 'digest_preview' || inputs.mode == 'weekly' || inputs.mode == 'weekly_preview'
+        if: inputs.mode == 'production' || inputs.mode == 'digest' || inputs.mode == 'digest_preview' || inputs.mode == 'weekly' || inputs.mode == 'weekly_preview' || inputs.mode == 'weekly_tv_diagnostic'
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -46,7 +46,7 @@ jobs:
             production-db-
 
       - name: Validate production snapshot
-        if: inputs.mode == 'digest' || inputs.mode == 'digest_preview' || inputs.mode == 'weekly' || inputs.mode == 'weekly_preview'
+        if: inputs.mode == 'digest' || inputs.mode == 'digest_preview' || inputs.mode == 'weekly' || inputs.mode == 'weekly_preview' || inputs.mode == 'weekly_tv_diagnostic'
         shell: bash
         env:
           MODE: ${{ inputs.mode }}
