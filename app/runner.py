@@ -178,6 +178,38 @@ class PipelineRunner:
             print(f"[DIGEST] ERROR: {exc}")
             return [SourceRun("telegram_digest", "delivery", 0, "down", str(exc))]
 
+    def run_weekly_tv_diagnostic(self) -> list[SourceRun]:
+        """Explain missing weekly TV assignments; never send messages."""
+        import sqlite3
+        from datetime import timedelta
+        from delivery.weekly import collect_next_week_events
+        from matching.tv_matcher import _parse_dt, _hockey_matchups, score_pair
+
+        events = [e for e in collect_next_week_events(self.db_path) if e.sport == "hockey" and not e.broadcasts]
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            sports = {row["id"]: row for row in conn.execute("SELECT * FROM sports_events")}
+            tv_rows = conn.execute("SELECT * FROM tv_programs").fetchall()
+        print(f"[WEEKLY TV DIAGNOSTIC] unmatched_hockey={len(events)}")
+        for event in events:
+            row = sports[event.event_id]
+            start = _parse_dt(row["start_datetime"])
+            nearby = []
+            for tv in tv_rows:
+                tv_start = _parse_dt(tv["start_datetime"])
+                if not start or not tv_start or abs(tv_start - start) > timedelta(hours=5):
+                    continue
+                candidate = score_pair(row, tv)
+                matchups = _hockey_matchups((tv["title"] or "") + "\\n" + (tv["description"] or ""))
+                nearby.append((abs((tv_start - start).total_seconds()), tv, candidate, bool(matchups)))
+            nearby.sort(key=lambda item: item[0])
+            print(f"[WEEKLY TV DIAGNOSTIC] EVENT {event.start.isoformat()} {event.name}; nearby_tv={len(nearby)}")
+            for _, tv, candidate, explicit_matchup in nearby[:15]:
+                print(f"[WEEKLY TV DIAGNOSTIC] TV channel={tv['channel']!r} start={tv['start_datetime']} title={tv['title']!r} score={candidate.score} status={candidate.status} explicit_matchup={explicit_matchup} reasons={candidate.reasons}")
+            if not nearby:
+                print("[WEEKLY TV DIAGNOSTIC] No TV schedule entries within five hours")
+        return [SourceRun("weekly_tv_diagnostic", "diagnostic", len(events), "healthy", "read-only; no Telegram sent")]
+
     def run_weekly_preview(self) -> list[SourceRun]:
         """Print next week's report without contacting Telegram."""
         try:
@@ -215,6 +247,7 @@ class PipelineRunner:
         if mode == "production": return self.run_production(source)
         if mode == "digest_preview": return self.run_digest_preview()
         if mode == "digest": return self.run_digest()
+        if mode == "weekly_tv_diagnostic": return self.run_weekly_tv_diagnostic()
         if mode == "weekly_preview": return self.run_weekly_preview()
         if mode == "weekly": return self.run_weekly()
         raise ValueError(f"Unknown mode: {mode}")
