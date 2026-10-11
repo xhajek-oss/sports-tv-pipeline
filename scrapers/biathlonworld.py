@@ -18,6 +18,15 @@ SUMMER_EVENT_MARKERS = ("loop one", "summer", "roller", "rollerski", "roller ski
 SUMMER_EVENT_IDS = ("BT2627SWRLOG__",)
 
 
+def _is_senior_ibu_event_id(event_id: str | None) -> bool:
+    """Only senior BT season events belong in the TV pipeline.
+
+    IBU EventId format: BT + four-digit season + age class (S/J/Y).
+    Exclude junior/youth and unrelated event classes before API requests.
+    """
+    return bool(event_id and re.match(r"^BT\d{4}S[A-Z0-9_]+$", event_id.upper()))
+
+
 def _is_snow_biathlon_event(title: str, location: str | None, event_id: str | None) -> bool:
     if event_id and event_id.upper() in SUMMER_EVENT_IDS:
         return False
@@ -323,6 +332,9 @@ class BiathlonWorldScraper(BaseScraper):
                     # Global navigation can mention summer races; only inspect event-specific labels.
                     calendar_label = labels.get(event_url, "")
                     if not _is_snow_biathlon_event(calendar_label, location, event_id):
+                        continue
+                    if not _is_senior_ibu_event_id(requested_id):
+                        print(f"[BIATHLON] skipped non-senior event: {requested_id}")
                         continue
                     # PB identifies para-biathlon events. The IBU winter-race
                     # feed uses BT identifiers; PB is a separate discipline
