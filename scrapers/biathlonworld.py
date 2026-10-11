@@ -268,6 +268,7 @@ class BiathlonWorldScraper(BaseScraper):
     def scrape(self) -> Iterable[SportsEvent]:
         all_events = []
         seen_events = set()
+        skipped_event_ids = set()
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
@@ -344,6 +345,7 @@ class BiathlonWorldScraper(BaseScraper):
                         raise RuntimeError(f"IBU race/event mismatch: {requested_id}")
                     if parsed and not _event_dates_match_calendar_label(calendar_label, parsed):
                         print(f"[BIATHLON] skipped inconsistent calendar date: {event_url}")
+                        skipped_event_ids.add(requested_id)
                         continue
                     if not parsed:
                         continue
@@ -352,6 +354,7 @@ class BiathlonWorldScraper(BaseScraper):
                     official_events = _official_event_races(requested_id, location, country, page.url)
                     if not _event_dates_match_calendar_label(calendar_label, official_events):
                         print(f"[BIATHLON] skipped inconsistent official dates: {event_url}")
+                        skipped_event_ids.add(requested_id)
                         continue
                     for event in official_events:
                         key = (event.start_datetime, event.name, event.location)
@@ -365,5 +368,10 @@ class BiathlonWorldScraper(BaseScraper):
 
         # A season/event page may legitimately contain no published races yet.
         # Actual browser/network/parser errors still propagate as real errors.
+        if skipped_event_ids:
+            raise RuntimeError(
+                "IBU calendar inconsistencies require review before reconciliation: "
+                + ", ".join(sorted(skipped_event_ids))
+            )
         all_events.sort(key=lambda event: event.start_datetime)
         return all_events
