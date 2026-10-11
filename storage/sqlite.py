@@ -85,6 +85,28 @@ class SQLiteStorage:
         self.conn.commit()
         return cursor.rowcount
 
+    def reconcile_biathlon(self, events: list[SportsEvent]) -> int:
+        """Remove stale future IBU rows only after a successful nonempty scrape."""
+        if not events:
+            return 0
+        from datetime import datetime, timezone
+
+        current_ids = {event.source_id for event in events}
+        now = datetime.now(timezone.utc).isoformat()
+        rows = self.conn.execute(
+            "SELECT id, source_id FROM sports_events "
+            "WHERE source = 'biathlonworld' AND start_datetime >= ?",
+            (now,),
+        ).fetchall()
+        stale_ids = [row_id for row_id, source_id in rows if source_id not in current_ids]
+        if stale_ids:
+            self.conn.executemany(
+                "DELETE FROM sports_events WHERE id = ?",
+                [(row_id,) for row_id in stale_ids],
+            )
+            self.conn.commit()
+        return len(stale_ids)
+
     def upsert(self, event: SportsEvent):
         self.conn.execute(
             """
