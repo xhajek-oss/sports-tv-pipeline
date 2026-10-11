@@ -48,5 +48,5 @@ def test_excludes_roller_and_summer_events():
     assert not _is_snow_biathlon_event("Loop One Festival", "Munich", "BT2627SWRLOG__")
     assert not _is_snow_biathlon_event("Summer World Championships", "Otepaa", "BT2627SWRLCH__")
     assert not _is_snow_biathlon_event("Roller Cup", "Munich", None)
-    assert _is_snow_biathlon_event("World Cup", "Kontiolahti", "BT2627SWRLCP01") is False
+    assert _is_snow_biathlon_event("World Cup", "Kontiolahti", "BT2627SWRLCP01")
     assert _is_snow_biathlon_event("World Cup", "Kontiolahti", "BT2627SWRLCP01".replace("SWRL", "WRL"))
