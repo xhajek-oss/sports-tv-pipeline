@@ -10,7 +10,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         required=True,
-        choices=("pr", "health", "production", "debug", "digest", "digest_preview", "weekly"),
+        choices=("pr", "health", "production", "debug", "digest", "digest_preview", "weekly", "weekly_preview"),
     )
     parser.add_argument(
         "--source",
@@ -29,7 +29,7 @@ def main() -> int:
         f"[RUNNER] mode={args.mode} sources={len(results)} "
         f"failed={len(failed)} warnings={len(warnings)}"
     )
-    if failed and args.mode in {"production", "debug", "pr", "digest", "digest_preview", "weekly"}:
+    if failed and args.mode in {"production", "debug", "pr", "digest", "digest_preview", "weekly", "weekly_preview"}:
         return 1
     return 0
 
