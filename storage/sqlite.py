@@ -79,8 +79,7 @@ class SQLiteStorage:
                 lower(competition) LIKE '%summer%' OR
                 lower(name) LIKE '%roller%' OR
                 lower(source_url) LIKE '%summer%' OR
-                (lower(location) LIKE '%munich%' AND
-                 substr(start_datetime, 1, 7) = '2026-10')
+                substr(start_datetime, 1, 7) = '2026-10'
             )
         """)
         self.conn.commit()
