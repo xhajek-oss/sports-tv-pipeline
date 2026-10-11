@@ -1,0 +1,27 @@
+name: IBU API Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      event_id:
+        description: IBU EventId to query
+        required: true
+        default: BT2627SWRLCP01
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Probe official IBU Sport API (read only)
+        env:
+          IBU_EVENT_ID: ${{ inputs.event_id }}
+        run: python -m scripts.probe_ibu_api
