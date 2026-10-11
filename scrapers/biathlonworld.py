@@ -344,9 +344,9 @@ class BiathlonWorldScraper(BaseScraper):
                     ):
                         raise RuntimeError(f"IBU race/event mismatch: {requested_id}")
                     if parsed and not _event_dates_match_calendar_label(calendar_label, parsed):
-                        print(f"[BIATHLON] skipped inconsistent calendar date: {event_url}")
-                        skipped_event_ids.add(requested_id)
-                        continue
+                        # SPA HTML can show stale races for another event.
+                        # Verify this EventId against authoritative API instead.
+                        print(f"[BIATHLON] stale HTML calendar panel; checking official API: {event_url}")
                     if not parsed:
                         continue
                     # HTML is only a guard against stale SPA panels. Official
