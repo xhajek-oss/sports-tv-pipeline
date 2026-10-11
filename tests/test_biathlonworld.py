@@ -154,3 +154,14 @@ def test_ibu_unknown_race_code_fails_closed(monkeypatch):
     monkeypatch.setattr("scrapers.biathlonworld.urlopen", lambda request, timeout: Response())
     with pytest.raises(RuntimeError, match="Unknown official IBU race code"):
         _official_event_races("BT2627JIBUCP01", "Kontiolahti", "Finland", "https://example.com")
+
+
+def test_only_senior_ibu_events_are_eligible():
+    from scrapers.biathlonworld import _is_senior_ibu_event_id
+    assert _is_senior_ibu_event_id("BT2627SWRLCP01")
+    assert _is_senior_ibu_event_id("BT2627SIBUCP04")
+    assert not _is_senior_ibu_event_id("BT2627JWRLCH__")
+    assert not _is_senior_ibu_event_id("BT2627JIBUCP01")
+    assert not _is_senior_ibu_event_id("BT2627YWRLCH__")
+    assert not _is_senior_ibu_event_id("PB2627SWRLCP01")
+    assert not _is_senior_ibu_event_id(None)
