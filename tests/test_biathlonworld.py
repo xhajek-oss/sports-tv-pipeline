@@ -114,3 +114,11 @@ def test_official_ibu_rejects_empty_schedule(monkeypatch):
     monkeypatch.setattr("scrapers.biathlonworld.urlopen", lambda request, timeout: Response())
     with pytest.raises(RuntimeError, match="no usable official races"):
         _official_event_races("BT2627SWRLCP01", "Kontiolahti", "Finland", "https://example.com")
+
+
+def test_official_ibu_extended_race_codes():
+    from scrapers.biathlonworld import RACE_CODES
+    assert RACE_CODES["SMSP2"] == "Men's Sprint 2"
+    assert RACE_CODES["SWSP2"] == "Women's Sprint 2"
+    assert RACE_CODES["SMM6"] == "Men's Mass Start 60"
+    assert RACE_CODES["SWM6"] == "Women's Mass Start 60"
