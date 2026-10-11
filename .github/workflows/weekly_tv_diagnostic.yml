@@ -1,0 +1,12 @@
+name: Weekly TV Diagnostic
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    uses: ./.github/workflows/_pipeline.yml
+    with:
+      mode: weekly_tv_diagnostic
+      source: all
+    secrets: inherit
