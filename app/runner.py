@@ -178,6 +178,21 @@ class PipelineRunner:
             print(f"[DIGEST] ERROR: {exc}")
             return [SourceRun("telegram_digest", "delivery", 0, "down", str(exc))]
 
+    def run_weekly_preview(self) -> list[SourceRun]:
+        """Print next week's report without contacting Telegram."""
+        try:
+            message = build_next_week_report(self.db_path)
+            if not message:
+                print("[WEEKLY PREVIEW] no sports events next week")
+                return [SourceRun("weekly_preview", "delivery", 0, "healthy", "nothing to preview")]
+            print("[WEEKLY PREVIEW] BEGIN")
+            print(message)
+            print("[WEEKLY PREVIEW] END (not sent)")
+            return [SourceRun("weekly_preview", "delivery", 1, "healthy", "preview only; not sent")]
+        except Exception as exc:
+            print(f"[WEEKLY PREVIEW] ERROR: {exc}")
+            return [SourceRun("weekly_preview", "delivery", 0, "down", str(exc))]
+
     def run_weekly(self) -> list[SourceRun]:
         try:
             message = build_next_week_report(self.db_path)
@@ -200,5 +215,6 @@ class PipelineRunner:
         if mode == "production": return self.run_production(source)
         if mode == "digest_preview": return self.run_digest_preview()
         if mode == "digest": return self.run_digest()
+        if mode == "weekly_preview": return self.run_weekly_preview()
         if mode == "weekly": return self.run_weekly()
         raise ValueError(f"Unknown mode: {mode}")
