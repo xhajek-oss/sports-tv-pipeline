@@ -146,6 +146,22 @@ class PipelineRunner:
                 results.append(SourceRun("tv_matcher", "matcher", 0, "down", str(exc)))
         return results
 
+    def run_digest_preview(self) -> list[SourceRun]:
+        """Render digest without making any Telegram API request."""
+        try:
+            message = build_today_digest(self.db_path)
+            if not message:
+                print("[DIGEST PREVIEW] no qualifying live broadcasts today")
+                return [SourceRun("digest_preview", "delivery", 0, "healthy", "nothing to preview")]
+            message = re.sub(r"(🏆 [^\\n]+)\\n\\n", r"\\1\\n", message)
+            print("[DIGEST PREVIEW] BEGIN")
+            print(message)
+            print("[DIGEST PREVIEW] END (not sent)")
+            return [SourceRun("digest_preview", "delivery", 1, "healthy", "preview only; not sent")]
+        except Exception as exc:
+            print(f"[DIGEST PREVIEW] ERROR: {exc}")
+            return [SourceRun("digest_preview", "delivery", 0, "down", str(exc))]
+
     def run_digest(self) -> list[SourceRun]:
         try:
             message = build_today_digest(self.db_path)
@@ -182,6 +198,7 @@ class PipelineRunner:
         if mode == "health": return self.run_health(source)
         if mode == "debug": return self.run_debug(source)
         if mode == "production": return self.run_production(source)
+        if mode == "digest_preview": return self.run_digest_preview()
         if mode == "digest": return self.run_digest()
         if mode == "weekly": return self.run_weekly()
         raise ValueError(f"Unknown mode: {mode}")
