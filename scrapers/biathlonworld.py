@@ -12,6 +12,19 @@ from .base import BaseScraper
 
 SOURCE_URL = "https://www.biathlonworld.com/calendar"
 
+SUMMER_EVENT_MARKERS = ("loop one", "summer", "roller", "rollerski", "roller ski")
+
+
+def _is_snow_biathlon_event(title: str, location: str | None, event_id: str | None) -> bool:
+    label = f"{title} {location or ''}".lower()
+    if any(marker in label for marker in SUMMER_EVENT_MARKERS):
+        return False
+    # IBU summer event identifiers contain SWRL (summer world roller).
+    if event_id and "SWRL" in event_id.upper():
+        return False
+    return True
+
+
 MONTHS = {
     "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
     "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12,
@@ -202,6 +215,11 @@ class BiathlonWorldScraper(BaseScraper):
                     location = _normalize_text(h1.first.inner_text()) if h1.count() else None
                     country = _normalize_text(h2.first.inner_text()) if h2.count() else None
 
+                    # Reject non-snow events before persisting any races.
+                    event_id = _event_id_from_url(page.url)
+                    header = text[:1200]
+                    if not _is_snow_biathlon_event(header, location, event_id):
+                        continue
                     for event in _parse_competitions(text, location, country, page.url):
                         key = (event.start_datetime, event.name, event.location)
                         if key in seen_events:
