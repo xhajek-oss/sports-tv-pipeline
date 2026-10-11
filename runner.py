@@ -10,7 +10,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         required=True,
-        choices=("pr", "health", "production", "debug", "digest", "digest_preview", "weekly", "weekly_preview"),
+        choices=("pr", "health", "production", "debug", "digest", "digest_preview", "weekly", "weekly_preview", "weekly_tv_diagnostic"),
     )
     parser.add_argument(
         "--source",
