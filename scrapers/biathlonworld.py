@@ -117,8 +117,12 @@ def _event_dates_match_calendar_label(label: str, events: list[SportsEvent]) -> 
         return False  # unknown date: fail closed
     month = MONTHS[match.group("month").title()]
     year = int(match.group("year"))
-    return all(e.start_datetime.astimezone(ZoneInfo(e.timezone)).year == year and
-               e.start_datetime.astimezone(ZoneInfo(e.timezone)).month == month for e in events)
+    return all(
+        e.start_datetime.astimezone(ZoneInfo(e.timezone)).year == year
+        and e.start_datetime.astimezone(ZoneInfo(e.timezone)).month == month
+        and not (year == 2026 and month == 10)
+        for e in events
+    )
 
 
 def _parse_competitions(
@@ -245,6 +249,11 @@ class BiathlonWorldScraper(BaseScraper):
                     if not _is_snow_biathlon_event(calendar_label, location, event_id):
                         continue
                     parsed = _parse_competitions(text, location, country, page.url)
+                    # The IBU SPA may display the Munich Loop One panel under a
+                    # winter EventId. Never accept that venue in the winter feed.
+                    if (location or "").strip().lower() in ("munich", "münchen"):
+                        print(f"[BIATHLON] skipped Munich/Loop One panel: {event_url}")
+                        continue
                     # The IBU calendar sometimes renders the currently selected event
                     # even for a different EventId. Never associate those races with
                     # a different venue or silently store wrong times.
