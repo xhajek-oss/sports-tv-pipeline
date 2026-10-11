@@ -92,6 +92,8 @@ RACE_CODES = {
     "SMMS": "Men's Mass Start", "SWMS": "Women's Mass Start",
     "SMRL": "Men's Relay", "SWRL": "Women's Relay",
     "MXRL": "Mixed Relay", "MXSR": "Single Mixed Relay",
+    "SMSP2": "Men\'s Sprint 2", "SWSP2": "Women\'s Sprint 2",
+    "SMM6": "Men\'s Mass Start 60", "SWM6": "Women\'s Mass Start 60",
 }
 
 
@@ -299,6 +301,12 @@ class BiathlonWorldScraper(BaseScraper):
                     # Global navigation can mention summer races; only inspect event-specific labels.
                     calendar_label = labels.get(event_url, "")
                     if not _is_snow_biathlon_event(calendar_label, location, event_id):
+                        continue
+                    # PB identifies para-biathlon events. The IBU winter-race
+                    # feed uses BT identifiers; PB is a separate discipline
+                    # whose API schedule may legitimately be unpublished.
+                    if requested_id and requested_id.startswith("PB"):
+                        print(f"[BIATHLON] skipped para-biathlon event: {requested_id}")
                         continue
                     parsed = _parse_competitions(text, location, country, page.url)
                     # The IBU SPA may display the Munich Loop One panel under a
