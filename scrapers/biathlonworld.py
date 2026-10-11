@@ -13,9 +13,12 @@ from .base import BaseScraper
 SOURCE_URL = "https://www.biathlonworld.com/calendar"
 
 SUMMER_EVENT_MARKERS = ("loop one", "summer", "roller", "rollerski", "roller ski")
+SUMMER_EVENT_IDS = ("BT2627SWRLOG__",)
 
 
 def _is_snow_biathlon_event(title: str, location: str | None, event_id: str | None) -> bool:
+    if event_id and event_id.upper() in SUMMER_EVENT_IDS:
+        return False
     label = f"{title} {location or ''}".lower()
     if any(marker in label for marker in SUMMER_EVENT_MARKERS):
         return False
@@ -197,7 +200,12 @@ class BiathlonWorldScraper(BaseScraper):
                 page.wait_for_timeout(2500)
 
                 links = page.locator('a[href*="EventId="]').evaluate_all(
-                    "(els) => els.map(el => ({url: el.href, label: el.innerText || el.textContent || ''}))"
+                    """(els) => els.map(el => ({
+                        url: el.href,
+                        label: [el.innerText, el.parentElement?.innerText,
+                                el.parentElement?.parentElement?.innerText]
+                            .filter(Boolean).join(" ").slice(0, 500)
+                    }))"""
                 )
 
                 event_urls = []
@@ -232,8 +240,9 @@ class BiathlonWorldScraper(BaseScraper):
                     requested_id = _event_id_from_url(event_url)
                     if requested_id and requested_id != event_id:
                         raise RuntimeError(f"IBU event mismatch: requested {requested_id}, got {event_id}")
-                    header = text[:1200]
-                    if not _is_snow_biathlon_event(header, location, event_id):
+                    # Global navigation can mention summer races; only inspect event-specific labels.
+                    calendar_label = labels.get(event_url, "")
+                    if not _is_snow_biathlon_event(calendar_label, location, event_id):
                         continue
                     parsed = _parse_competitions(text, location, country, page.url)
                     # The IBU calendar sometimes renders the currently selected event
@@ -243,7 +252,7 @@ class BiathlonWorldScraper(BaseScraper):
                         event.source_id.startswith(requested_id + "-") for event in parsed
                     ):
                         raise RuntimeError(f"IBU race/event mismatch: {requested_id}")
-                    if parsed and not _event_dates_match_calendar_label(labels.get(event_url, ""), parsed):
+                    if parsed and not _event_dates_match_calendar_label(calendar_label, parsed):
                         print(f"[BIATHLON] skipped inconsistent calendar date: {event_url}")
                         continue
                     for event in parsed:
