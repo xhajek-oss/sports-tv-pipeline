@@ -1,0 +1,12 @@
+name: Telegram Weekly Preview
+
+on:
+  workflow_dispatch:
+
+jobs:
+  preview:
+    uses: ./.github/workflows/_pipeline.yml
+    with:
+      mode: weekly_preview
+      source: all
+    secrets: inherit
