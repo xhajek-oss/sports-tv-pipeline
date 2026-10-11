@@ -1,4 +1,5 @@
 import re
+from urllib.request import Request, urlopen
 from datetime import datetime, timezone
 from typing import Iterable
 from urllib.parse import urljoin, urlparse, parse_qs
@@ -6,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from playwright.sync_api import sync_playwright
 
+from validation.ibu_datacenter import parse_official_competitions
 from models.sports_event import SportsEvent
 from .base import BaseScraper
 
@@ -78,6 +80,56 @@ VENUE_TIMEZONES = {
     "soldier hollow": "America/Denver",
     "salt lake": "America/Denver",
 }
+
+
+IBU_API_URL = "https://api.biathlonresults.com/modules/sportapi/api/Competitions?EventId="
+
+# IBU RaceId discipline codes; unrecognized codes are deliberately skipped.
+RACE_CODES = {
+    "SMIN": "Men's Individual", "SWIN": "Women's Individual",
+    "SMSP": "Men's Sprint", "SWSP": "Women's Sprint",
+    "SMPU": "Men's Pursuit", "SWPU": "Women's Pursuit",
+    "SMMS": "Men's Mass Start", "SWMS": "Women's Mass Start",
+    "SMRL": "Men's Relay", "SWRL": "Women's Relay",
+    "MXRL": "Mixed Relay", "MXSR": "Single Mixed Relay",
+}
+
+
+def _official_event_races(event_id: str, location: str, country: str | None,
+                          source_url: str) -> list[SportsEvent]:
+    """Fetch official IBU start times. Network/schema failures abort the scrape."""
+    request = Request(IBU_API_URL + event_id, headers={
+        "Accept": "application/json", "User-Agent": "sports-tv-pipeline/1.0",
+    })
+    with urlopen(request, timeout=25) as response:
+        payload = response.read(2_000_001)
+    if len(payload) > 2_000_000:
+        raise RuntimeError(f"IBU API response too large for {event_id}")
+    official = parse_official_competitions(payload.decode("utf-8-sig"))
+    if not official:
+        raise RuntimeError(f"IBU API returned no usable official races for {event_id}")
+    discovered_at = datetime.now(timezone.utc)
+    tz_name = _timezone_for_location(location)
+    events = []
+    for race_id, start in official.items():
+        if not race_id.startswith(event_id):
+            raise RuntimeError(f"IBU API race/event mismatch: {race_id} != {event_id}")
+        code = race_id[len(event_id):]
+        name = RACE_CODES.get(code)
+        if not name:
+            print(f"[BIATHLON] unknown official race code: {race_id}")
+            continue
+        events.append(SportsEvent(
+            source="biathlonworld", source_id=race_id, sport="biathlon",
+            competition="International Biathlon Union", name=name,
+            start_datetime=start, end_datetime=None, location=location,
+            country=country, source_url=source_url, discovered_at=discovered_at,
+            timezone=tz_name,
+        ))
+    if not events:
+        raise RuntimeError(f"No recognized IBU race codes for {event_id}")
+    return events
+
 
 COMPETITION_RE = re.compile(
     r"\b(?P<month>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
@@ -264,7 +316,15 @@ class BiathlonWorldScraper(BaseScraper):
                     if parsed and not _event_dates_match_calendar_label(calendar_label, parsed):
                         print(f"[BIATHLON] skipped inconsistent calendar date: {event_url}")
                         continue
-                    for event in parsed:
+                    if not parsed:
+                        continue
+                    # HTML is only a guard against stale SPA panels. Official
+                    # RaceId and UTC StartTime are the authoritative records.
+                    official_events = _official_event_races(requested_id, location, country, page.url)
+                    if not _event_dates_match_calendar_label(calendar_label, official_events):
+                        print(f"[BIATHLON] skipped inconsistent official dates: {event_url}")
+                        continue
+                    for event in official_events:
                         key = (event.start_datetime, event.name, event.location)
                         if key in seen_events:
                             continue
