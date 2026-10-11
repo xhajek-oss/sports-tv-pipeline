@@ -24,3 +24,21 @@ def test_ibu_start_comparison_converts_timezones():
 def test_ibu_parser_rejects_naive_time():
     xml = "<Competitions><Competition><RaceId>R1</RaceId><StartTime>2026-11-28T12:00:00</StartTime></Competition></Competitions>"
     assert parse_official_competitions(xml) == {}
+
+
+def test_parse_json_ibu_competitions():
+    payload = '{"Competitions":[{"RaceId":"R1","StartTime":"2026-11-28T12:00:00Z"},{"RaceId":"R2","StartTime":"2026-11-28T12:00:00+02:00"}]}'
+    result = parse_official_competitions(payload)
+    assert result["R1"] == datetime(2026, 11, 28, 12, tzinfo=timezone.utc)
+    assert result["R2"] == datetime(2026, 11, 28, 10, tzinfo=timezone.utc)
+
+
+def test_parse_json_ibu_rejects_naive_and_invalid_times():
+    payload = '[{"RaceId":"R1","StartTime":"2026-11-28T12:00:00"},{"RaceId":"R2","StartTime":"invalid"}]'
+    assert parse_official_competitions(payload) == {}
+
+
+def test_parse_json_ibu_rejects_invalid_document():
+    import pytest
+    with pytest.raises(ValueError):
+        parse_official_competitions('{"Competitions":')
