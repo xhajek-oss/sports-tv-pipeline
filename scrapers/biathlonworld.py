@@ -107,6 +107,17 @@ def _timezone_for_location(location: str | None) -> str:
     )
 
 
+def _event_dates_match_calendar_label(label: str, events: list[SportsEvent]) -> bool:
+    """Reject stale race panels if their month/year differs from calendar entry."""
+    match = re.search(r"(?P<month>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\s+(?P<year>20\\d{2})", label, re.I)
+    if not match:
+        return False  # unknown date: fail closed
+    month = MONTHS[match.group("month").title()]
+    year = int(match.group("year"))
+    return all(e.start_datetime.astimezone(ZoneInfo(e.timezone)).year == year and
+               e.start_datetime.astimezone(ZoneInfo(e.timezone)).month == month for e in events)
+
+
 def _parse_competitions(
     text: str,
     location: str | None,
@@ -185,19 +196,22 @@ class BiathlonWorldScraper(BaseScraper):
                 page.goto(SOURCE_URL, wait_until="domcontentloaded", timeout=60000)
                 page.wait_for_timeout(2500)
 
-                hrefs = page.locator('a[href*="EventId="]').evaluate_all(
-                    "(els) => els.map(el => el.href)"
+                links = page.locator('a[href*="EventId="]').evaluate_all(
+                    "(els) => els.map(el => ({url: el.href, label: el.innerText || el.textContent || ''}))"
                 )
 
                 event_urls = []
                 seen_urls = set()
-                for href in hrefs:
+                labels = {}
+                for link in links:
+                    href = link["url"]
                     if not _event_id_from_url(href):
                         continue
                     absolute = urljoin(SOURCE_URL, href)
                     if absolute not in seen_urls:
                         seen_urls.add(absolute)
                         event_urls.append(absolute)
+                        labels[absolute] = link["label"]
 
                 if not event_urls:
                     event_urls = [page.url]
@@ -229,6 +243,9 @@ class BiathlonWorldScraper(BaseScraper):
                         event.source_id.startswith(requested_id + "-") for event in parsed
                     ):
                         raise RuntimeError(f"IBU race/event mismatch: {requested_id}")
+                    if parsed and not _event_dates_match_calendar_label(labels.get(event_url, ""), parsed):
+                        print(f"[BIATHLON] skipped inconsistent calendar date: {event_url}")
+                        continue
                     for event in parsed:
                         key = (event.start_datetime, event.name, event.location)
                         if key in seen_events:
