@@ -70,6 +70,22 @@ class SQLiteStorage:
         )
         self.conn.commit()
 
+    def purge_non_snow_biathlon(self) -> int:
+        """Remove legacy summer/roller events from persisted snapshots."""
+        cursor = self.conn.execute("""
+            DELETE FROM sports_events
+            WHERE source = 'biathlonworld' AND (
+                lower(name) LIKE '%loop one%' OR
+                lower(competition) LIKE '%summer%' OR
+                lower(name) LIKE '%roller%' OR
+                lower(source_url) LIKE '%summer%' OR
+                (lower(location) LIKE '%munich%' AND
+                 substr(start_datetime, 1, 7) = '2026-10')
+            )
+        """)
+        self.conn.commit()
+        return cursor.rowcount
+
     def upsert(self, event: SportsEvent):
         self.conn.execute(
             """
