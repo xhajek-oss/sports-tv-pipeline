@@ -101,6 +101,9 @@ class PipelineRunner:
 
     def run_production(self, source: str = "all") -> list[SourceRun]:
         storage = SQLiteStorage(self.db_path)
+        removed = storage.purge_non_snow_biathlon()
+        if removed:
+            print(f"[PROD] removed {removed} legacy non-snow biathlon races")
         validator = EventCountValidator(self.validation_state)
         results: list[SourceRun] = []
         selected = selected_sources(source)
