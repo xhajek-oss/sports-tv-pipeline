@@ -19,9 +19,7 @@ def _is_snow_biathlon_event(title: str, location: str | None, event_id: str | No
     label = f"{title} {location or ''}".lower()
     if any(marker in label for marker in SUMMER_EVENT_MARKERS):
         return False
-    # IBU summer event identifiers contain SWRL (summer world roller).
-    if event_id and "SWRL" in event_id.upper():
-        return False
+    # SWRL is used by winter World Cup events too; never infer summer from this ID.
     return True
 
 
@@ -217,10 +215,21 @@ class BiathlonWorldScraper(BaseScraper):
 
                     # Reject non-snow events before persisting any races.
                     event_id = _event_id_from_url(page.url)
+                    requested_id = _event_id_from_url(event_url)
+                    if requested_id and requested_id != event_id:
+                        raise RuntimeError(f"IBU event mismatch: requested {requested_id}, got {event_id}")
                     header = text[:1200]
                     if not _is_snow_biathlon_event(header, location, event_id):
                         continue
-                    for event in _parse_competitions(text, location, country, page.url):
+                    parsed = _parse_competitions(text, location, country, page.url)
+                    # The IBU calendar sometimes renders the currently selected event
+                    # even for a different EventId. Never associate those races with
+                    # a different venue or silently store wrong times.
+                    if parsed and requested_id and not all(
+                        event.source_id.startswith(requested_id + "-") for event in parsed
+                    ):
+                        raise RuntimeError(f"IBU race/event mismatch: {requested_id}")
+                    for event in parsed:
                         key = (event.start_datetime, event.name, event.location)
                         if key in seen_events:
                             continue
