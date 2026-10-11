@@ -122,3 +122,35 @@ def test_official_ibu_extended_race_codes():
     assert RACE_CODES["SWSP2"] == "Women's Sprint 2"
     assert RACE_CODES["SMM6"] == "Men's Mass Start 60"
     assert RACE_CODES["SWM6"] == "Women's Mass Start 60"
+
+
+def test_ibu_race_code_decoder_for_juniors_youth_and_short_individual():
+    from scrapers.biathlonworld import _race_name
+    assert _race_name("SMSI") == "Men's Short Individual"
+    assert _race_name("SWSI") == "Women's Short Individual"
+    assert _race_name("JMIN") == "Junior Men Individual"
+    assert _race_name("JWIN") == "Junior Women Individual"
+    assert _race_name("JMSP") == "Junior Men Sprint"
+    assert _race_name("JWSP") == "Junior Women Sprint"
+    assert _race_name("JMM6") == "Junior Men Mass Start 60"
+    assert _race_name("JWM6") == "Junior Women Mass Start 60"
+    assert _race_name("YMPU") == "Youth Men Pursuit"
+    assert _race_name("YWSP") == "Youth Women Sprint"
+    assert _race_name("UNKNOWN") is None
+
+
+def test_ibu_unknown_race_code_fails_closed(monkeypatch):
+    import pytest
+    from scrapers.biathlonworld import _official_event_races
+
+    class Response:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def read(self, size):
+            return b'[{"RaceId":"BT2627JIBUCP01JXYZ","StartTime":"2026-12-01T12:00:00Z"}]'
+
+    monkeypatch.setattr("scrapers.biathlonworld.urlopen", lambda request, timeout: Response())
+    with pytest.raises(RuntimeError, match="Unknown official IBU race code"):
+        _official_event_races("BT2627JIBUCP01", "Kontiolahti", "Finland", "https://example.com")
