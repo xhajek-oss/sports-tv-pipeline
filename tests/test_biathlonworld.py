@@ -165,3 +165,30 @@ def test_only_senior_ibu_events_are_eligible():
     assert not _is_senior_ibu_event_id("BT2627YWRLCH__")
     assert not _is_senior_ibu_event_id("PB2627SWRLCP01")
     assert not _is_senior_ibu_event_id(None)
+
+
+def test_official_ibu_start_times_render_in_prague_winter_and_summer(monkeypatch):
+    """Official UTC instants must survive ingestion and local digest conversion."""
+    import json
+    from zoneinfo import ZoneInfo
+    from scrapers.biathlonworld import _official_event_races
+
+    schedules = [
+        ("2026-11-28T12:00:00Z", "2026-11-28T13:00:00+01:00"),
+        ("2027-03-28T12:00:00Z", "2027-03-28T14:00:00+02:00"),
+    ]
+    for official_utc, expected_prague in schedules:
+        class Response:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, size):
+                return json.dumps([{
+                    "RaceId": "BT2627SWRLCP01SWSP", "StartTime": official_utc,
+                }]).encode()
+
+        monkeypatch.setattr("scrapers.biathlonworld.urlopen", lambda request, timeout: Response())
+        events = _official_event_races("BT2627SWRLCP01", "Kontiolahti", "Finland", "https://example.com")
+        assert events[0].start_datetime.isoformat() == official_utc.replace("Z", "+00:00")
+        assert events[0].start_datetime.astimezone(ZoneInfo("Europe/Prague")).isoformat() == expected_prague
