@@ -107,6 +107,32 @@ class SQLiteStorage:
             self.conn.commit()
         return len(stale_ids)
 
+    def reconcile_hcdynamo(self, events: list[SportsEvent]) -> int:
+        """Delete obsolete future Dynamo fixtures after a validated scrape.
+
+        An empty result is never evidence that the published schedule was cleared.
+        Past results and other sources are always retained.
+        """
+        if not events or any(event.source != "hcdynamo" for event in events):
+            return 0
+        from datetime import datetime, timezone
+
+        current_ids = {event.source_id for event in events}
+        now = datetime.now(timezone.utc).isoformat()
+        rows = self.conn.execute(
+            "SELECT id, source_id FROM sports_events "
+            "WHERE source = 'hcdynamo' AND start_datetime >= ?",
+            (now,),
+        ).fetchall()
+        stale = [row_id for row_id, source_id in rows if source_id not in current_ids]
+        if stale:
+            self.conn.executemany(
+                "DELETE FROM sports_events WHERE id = ?",
+                [(row_id,) for row_id in stale],
+            )
+            self.conn.commit()
+        return len(stale)
+
     def upsert(self, event: SportsEvent):
         self.conn.execute(
             """
