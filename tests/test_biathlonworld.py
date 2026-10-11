@@ -57,3 +57,16 @@ def test_stale_calendar_races_rejected():
     assert not _event_dates_match_calendar_label("26—29 Nov 2026 Kontiolahti", races)
     assert _event_dates_match_calendar_label("17—18 Oct 2026 Munich", races)
     assert not _event_dates_match_calendar_label("", races)
+
+
+def test_loop_one_excluded_by_event_id_even_without_name():
+    assert not _is_snow_biathlon_event("Munich", "Munich", "BT2627SWRLOG__")
+
+
+def test_winter_event_not_excluded_by_unrelated_navigation():
+    assert _is_snow_biathlon_event("World Cup Nov 2026", "Kontiolahti", "BT2627SWRLCP01")
+
+
+def test_calendar_card_context_with_dates():
+    races = _parse_competitions("Nov 28 2026 Sat 12:00 Women's Sprint Scheduled", "Kontiolahti", "Finland", "https://www.biathlonworld.com/calendar?EventId=BT2627SWRLCP01")
+    assert _event_dates_match_calendar_label("Kontiolahti 26—29 Nov 2026 World Cup", races)
