@@ -84,7 +84,8 @@ VENUE_TIMEZONES = {
 
 IBU_API_URL = "https://api.biathlonresults.com/modules/sportapi/api/Competitions?EventId="
 
-# IBU RaceId discipline codes; unrecognized codes are deliberately skipped.
+# IBU RaceId discipline codes. Explicitly classify gender/age and event type.
+# Unknown suffixes must fail closed rather than silently delete valid races.
 RACE_CODES = {
     "SMIN": "Men's Individual", "SWIN": "Women's Individual",
     "SMSP": "Men's Sprint", "SWSP": "Women's Sprint",
@@ -92,9 +93,30 @@ RACE_CODES = {
     "SMMS": "Men's Mass Start", "SWMS": "Women's Mass Start",
     "SMRL": "Men's Relay", "SWRL": "Women's Relay",
     "MXRL": "Mixed Relay", "MXSR": "Single Mixed Relay",
-    "SMSP2": "Men\'s Sprint 2", "SWSP2": "Women\'s Sprint 2",
-    "SMM6": "Men\'s Mass Start 60", "SWM6": "Women\'s Mass Start 60",
+    "SMSP2": "Men's Sprint 2", "SWSP2": "Women's Sprint 2",
+    "SMM6": "Men's Mass Start 60", "SWM6": "Women's Mass Start 60",
+    "SMSI": "Men's Short Individual", "SWSI": "Women's Short Individual",
 }
+
+AGE_GENDER = {
+    "JM": "Junior Men", "JW": "Junior Women",
+    "YM": "Youth Men", "YW": "Youth Women",
+}
+AGE_DISCIPLINES = {
+    "IN": "Individual", "SI": "Short Individual", "SP": "Sprint",
+    "SP2": "Sprint 2", "PU": "Pursuit", "MS": "Mass Start",
+    "M6": "Mass Start 60", "RL": "Relay",
+}
+
+
+def _race_name(code: str) -> str | None:
+    if code in RACE_CODES:
+        return RACE_CODES[code]
+    for prefix, category in AGE_GENDER.items():
+        if code.startswith(prefix):
+            discipline = AGE_DISCIPLINES.get(code[len(prefix):])
+            return f"{category} {discipline}" if discipline else None
+    return None
 
 
 def _official_event_races(event_id: str, location: str, country: str | None,
@@ -117,10 +139,9 @@ def _official_event_races(event_id: str, location: str, country: str | None,
         if not race_id.startswith(event_id):
             raise RuntimeError(f"IBU API race/event mismatch: {race_id} != {event_id}")
         code = race_id[len(event_id):]
-        name = RACE_CODES.get(code)
+        name = _race_name(code)
         if not name:
-            print(f"[BIATHLON] unknown official race code: {race_id}")
-            continue
+            raise RuntimeError(f"Unknown official IBU race code: {race_id}")
         events.append(SportsEvent(
             source="biathlonworld", source_id=race_id, sport="biathlon",
             competition="International Biathlon Union", name=name,
