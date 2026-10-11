@@ -109,7 +109,7 @@ def _timezone_for_location(location: str | None) -> str:
 
 def _event_dates_match_calendar_label(label: str, events: list[SportsEvent]) -> bool:
     """Reject stale race panels if their month/year differs from calendar entry."""
-    match = re.search(r"(?P<month>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\\s+(?P<year>20\\d{2})", label, re.I)
+    match = re.search(r"(?P<month>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(?P<year>20\d{2})", label, re.I)
     if not match:
         return False  # unknown date: fail closed
     month = MONTHS[match.group("month").title()]
