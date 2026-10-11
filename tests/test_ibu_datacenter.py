@@ -42,3 +42,31 @@ def test_parse_json_ibu_rejects_invalid_document():
     import pytest
     with pytest.raises(ValueError):
         parse_official_competitions('{"Competitions":')
+
+
+def test_persisted_ibu_audit_detects_time_mismatch(tmp_path, monkeypatch):
+    import sqlite3
+    import pytest
+    import validation.ibu_datacenter as ibu
+
+    db = tmp_path / "events.db"
+    race_id = "BT2627SWRLCP01SWSP"
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE sports_events (source TEXT, source_id TEXT, start_datetime TEXT)")
+        conn.execute("INSERT INTO sports_events VALUES (?, ?, ?)",
+                     ("biathlonworld", race_id, "2027-01-01T12:00:00+00:00"))
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def read(self, size):
+            return b'[{"RaceId":"BT2627SWRLCP01SWSP","StartTime":"2027-01-01T12:00:00Z"}]'
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: FakeResponse())
+    assert ibu.audit_persisted_ibu_starts(str(db)) == 1
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE sports_events SET start_datetime = '2027-01-01T13:00:00+00:00'")
+    with pytest.raises(RuntimeError, match="official start mismatch"):
+        ibu.audit_persisted_ibu_starts(str(db))
