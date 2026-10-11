@@ -115,6 +115,10 @@ jobs:
           TELEGRAM_DIGEST_CHAT_ID: ${{ secrets.TELEGRAM_DIGEST_CHAT_ID }}
         run: python runner.py --mode '${{ inputs.mode }}' --source '${{ inputs.source }}'
 
+      - name: Audit official IBU start times
+        if: inputs.mode == 'production' && (inputs.source == 'all' || inputs.source == 'biathlonworld')
+        run: python -c "from validation.ibu_datacenter import audit_persisted_ibu_starts; print('[IBU AUDIT] verified', audit_persisted_ibu_starts(), 'upcoming races')"
+
       - name: Mark successful production snapshot
         if: success() && inputs.mode == 'production'
         shell: bash
