@@ -205,3 +205,30 @@ def test_oneplay_md_is_used_only_when_no_fixture_specific_route_exists():
         }),
     ])
     assert [row.channel for row in rows] == ["Oneplay Sport MD"]
+
+
+def test_biathlon_digest_uses_prague_event_start_not_tv_start():
+    from datetime import timezone
+    from delivery.digest import _parse_dt
+
+    official_utc = _parse_dt("2026-11-28T12:00:00+00:00")
+    assert official_utc is not None
+    local_start = official_utc.astimezone(PRAGUE)
+    assert local_start.strftime("%H:%M") == "13:00"
+
+    tv = Broadcast(**{
+        **broadcast(start="2026-11-28T12:45:00", channel="ČT sport").__dict__,
+        "sport": "biathlon",
+        "competition": "Světový pohár",
+        "event_name": "Women's Sprint",
+    })
+    item = DigestItem(
+        key="event|1", sport="biathlon", competition="Světový pohár",
+        title="Sprint žen", location="Kontiolahti", country="Finsko",
+        start=local_start, broadcasts=(tv,),
+    )
+    digest = format_digest([item], day=date(2026, 11, 28))
+    assert digest is not None
+    assert "<b>13:00</b>  Sprint žen" in digest
+    assert "12:45" not in digest
+    assert "📺 ČT sport" in digest
