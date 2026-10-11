@@ -123,6 +123,9 @@ class PipelineRunner:
                     warnings = validation.warnings
                     for item in items:
                         storage.upsert(item)
+                    if spec.name == "hcdynamo" and items and not warnings:
+                        removed_stale = storage.reconcile_hcdynamo(items)
+                        print(f"[PROD] hcdynamo: reconciled {removed_stale} stale future fixtures")
                     if spec.name == "biathlonworld" and items and not warnings:
                         removed_stale = storage.reconcile_biathlon(items)
                         print(f"[PROD] biathlonworld: reconciled {removed_stale} stale future races")
