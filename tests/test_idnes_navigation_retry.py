@@ -11,6 +11,7 @@ def _scraper():
     scraper.timeout = 30
     scraper._ensure_browser = Mock()
     scraper._ensure_browser.return_value.new_page.return_value = Mock()
+    scraper._close_browser = Mock()
     return scraper
 
 
@@ -23,6 +24,7 @@ def test_idnes_retries_navigation_timeout():
         assert scraper._fetch_html("https://example.com") == "<html>ok</html>"
     assert page.goto.call_count == 2
     assert page.close.call_count == 2
+    scraper._close_browser.assert_called_once()
     sleep.assert_called_once()
 
 
@@ -35,6 +37,7 @@ def test_idnes_retries_server_error_and_fails_closed():
             scraper._fetch_html("https://example.com")
     assert page.goto.call_count == 3
     assert page.close.call_count == 3
+    assert scraper._close_browser.call_count == 2
 
 
 def test_idnes_does_not_retry_client_error():
@@ -44,3 +47,4 @@ def test_idnes_does_not_retry_client_error():
     with pytest.raises(ValueError, match="HTTP 404"):
         scraper._fetch_html("https://example.com")
     page.goto.assert_called_once()
+    scraper._close_browser.assert_not_called()
