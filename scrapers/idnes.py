@@ -88,12 +88,13 @@ class IdnesTVScraper:
             self._playwright = None
 
     def _fetch_html(self, url: str) -> str:
-        # Retry only transient navigation failures; malformed content remains a
-        # hard error in the existing channel/search validation.
+        # Retry transient navigation failures with a fresh browser context.
+        # Keep invalid HTTP 4xx and malformed programme content as hard errors.
         for attempt in range(1, 4):
-            context = self._ensure_browser()
-            page = context.new_page()
+            page = None
             try:
+                context = self._ensure_browser()
+                page = context.new_page()
                 response = page.goto(
                     url,
                     wait_until="domcontentloaded",
@@ -113,10 +114,20 @@ class IdnesTVScraper:
                     raise RuntimeError(
                         f"iDNES navigation failed after 3 attempts at {url}: {exc}"
                     ) from exc
-                print(f"[IDNES] navigation attempt {attempt}/3 failed at {url}: {exc}; retrying")
+                print(f"[IDNES] navigation attempt {attempt}/3 failed at {url}: {exc}; restarting browser")
+                # A stuck Chromium connection can make retries in the same
+                # context fail repeatedly. Recreate it before the next attempt.
+                if page is not None:
+                    try:
+                        page.close()
+                    except PlaywrightError:
+                        pass
+                    page = None
+                self._close_browser()
                 retry_time.sleep(2 ** attempt)
             finally:
-                page.close()
+                if page is not None:
+                    page.close()
         raise AssertionError("unreachable")
 
     @staticmethod
