@@ -1,11 +1,12 @@
 import re
+import time
 from urllib.request import Request, urlopen
 from datetime import datetime, timezone
 from typing import Iterable
 from urllib.parse import urljoin, urlparse, parse_qs
 from zoneinfo import ZoneInfo
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Error as PlaywrightError, sync_playwright
 
 from validation.ibu_datacenter import parse_official_competitions
 from models.sports_event import SportsEvent
@@ -271,6 +272,30 @@ def _parse_competitions(
     return events
 
 
+TRANSIENT_PAGE_MARKERS = ("this function has crashed", "application error", "internal server error")
+
+
+def _navigate_with_retry(page, url: str, *, attempts: int = 3) -> None:
+    """Retry transient browser/network errors and server error pages."""
+    for attempt in range(1, attempts + 1):
+        try:
+            response = page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            if response is not None and response.status >= 500:
+                raise RuntimeError(f"HTTP {response.status} at {url}")
+            page.wait_for_timeout(1000)
+            body = page.locator("body").inner_text(timeout=10000).lower()
+            if any(marker in body for marker in TRANSIENT_PAGE_MARKERS):
+                raise RuntimeError(f"Biathlon World returned an error page at {url}")
+            return
+        except (PlaywrightError, RuntimeError) as exc:
+            if attempt == attempts:
+                raise RuntimeError(
+                    f"Biathlon World navigation failed after {attempts} attempts at {url}: {exc}"
+                ) from exc
+            print(f"[BIATHLON] navigation attempt {attempt}/{attempts} failed at {url}: {exc}; retrying")
+            time.sleep(min(2 ** attempt, 8))
+
+
 class BiathlonWorldScraper(BaseScraper):
     source = "biathlonworld"
 
@@ -285,8 +310,8 @@ class BiathlonWorldScraper(BaseScraper):
             page = context.new_page()
 
             try:
-                page.goto(SOURCE_URL, wait_until="domcontentloaded", timeout=60000)
-                page.wait_for_timeout(2500)
+                _navigate_with_retry(page, SOURCE_URL)
+                page.wait_for_timeout(1500)
 
                 links = page.locator('a[href*="EventId="]').evaluate_all(
                     """(els) => els.map(el => ({
@@ -314,8 +339,7 @@ class BiathlonWorldScraper(BaseScraper):
                     event_urls = [page.url]
 
                 for event_url in event_urls:
-                    page.goto(event_url, wait_until="domcontentloaded", timeout=60000)
-                    page.wait_for_timeout(1000)
+                    _navigate_with_retry(page, event_url)
 
                     text = page.locator("body").inner_text()
                     h1 = page.locator("h1")
