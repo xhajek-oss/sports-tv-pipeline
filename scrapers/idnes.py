@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time as retry_time
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
@@ -11,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 from bs4 import BeautifulSoup, Tag
-from playwright.sync_api import Browser, BrowserContext, Playwright, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Error as PlaywrightError, Playwright, sync_playwright
 
 from models.tv_program import TVProgram
 
@@ -87,23 +88,36 @@ class IdnesTVScraper:
             self._playwright = None
 
     def _fetch_html(self, url: str) -> str:
-        context = self._ensure_browser()
-        page = context.new_page()
-        try:
-            response = page.goto(
-                url,
-                wait_until="domcontentloaded",
-                timeout=self.timeout * 1000,
-            )
-            if response is not None and response.status >= 400:
-                raise RuntimeError(f"iDNES HTTP {response.status} for {url}")
+        # Retry only transient navigation failures; malformed content remains a
+        # hard error in the existing channel/search validation.
+        for attempt in range(1, 4):
+            context = self._ensure_browser()
+            page = context.new_page()
             try:
-                page.wait_for_selector('a[href*=".id"]', timeout=min(self.timeout, 10) * 1000)
-            except Exception:
-                pass
-            return page.content()
-        finally:
-            page.close()
+                response = page.goto(
+                    url,
+                    wait_until="domcontentloaded",
+                    timeout=self.timeout * 1000,
+                )
+                if response is not None and response.status >= 500:
+                    raise RuntimeError(f"iDNES HTTP {response.status} for {url}")
+                if response is not None and response.status >= 400:
+                    raise ValueError(f"iDNES HTTP {response.status} for {url}")
+                try:
+                    page.wait_for_selector('a[href*=".id"]', timeout=min(self.timeout, 10) * 1000)
+                except PlaywrightError:
+                    pass  # The caller validates whether this is a valid empty page.
+                return page.content()
+            except (PlaywrightError, RuntimeError) as exc:
+                if attempt == 3:
+                    raise RuntimeError(
+                        f"iDNES navigation failed after 3 attempts at {url}: {exc}"
+                    ) from exc
+                print(f"[IDNES] navigation attempt {attempt}/3 failed at {url}: {exc}; retrying")
+                retry_time.sleep(2 ** attempt)
+            finally:
+                page.close()
+        raise AssertionError("unreachable")
 
     @staticmethod
     def _normalize_text(value: str) -> str:
