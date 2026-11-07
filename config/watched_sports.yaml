@@ -1,0 +1,60 @@
+# Expressions are matched against lowercase text without accents or punctuation.
+# IIHF requires an explicit tournament selection. Women's Worlds is excluded.
+competitions:
+  - id: extraliga
+    sport: hockey
+    label: Extraliga
+    match: '\btipsport (?:extralig\w*|elh)\b|\belh\b'
+    teams: ['\b(?:dynamo pardubice|pardubice)\b']
+
+  - id: champions_league
+    sport: hockey
+    label: Liga mistrů
+    match: '\b(?:chl|champions hockey league|liga mistru)\b'
+    teams: ['\b(?:dynamo pardubice|pardubice)\b']
+
+  - id: iihf_mens_worlds
+    enabled: false
+    sport: hockey
+    label: MS v ledním hokeji mužů
+    match: '\bms v lednim hokeji muzu\b'
+
+  - id: biathlon_world_cup
+    sport: biathlon
+    label: Světový pohár
+    match: '\b(?:sp v biatlonu|svetov\w* pohar\w* v biatlonu|biathlon world cup)\b|\bbiatlon\b.*\b(?:svetov\w* pohar\w*|world cup)\b'
+
+  - id: biathlon_worlds
+    sport: biathlon
+    label: Mistrovství světa
+    match: '\b(?:ms v biatlonu|mistrovstvi sveta v biatlonu|biathlon world championships?)\b|\bbiatlon\b.*\b(?:mistrovstvi sveta|ms)\b'
+
+  - id: biathlon_ibu_cup
+    sport: biathlon
+    label: IBU Cup
+    match: '\b(?:ibu cup|ibu pohar|pohar ibu)\b'
+
+  - id: biathlon_others
+    sport: biathlon
+    label: Biatlon
+    match: '\b(?:biatlon|biathlon)\b.*\b(?:mistrovstvi evropy|me v biatlonu|zimni olympijske hry|zoh)\b|\b(?:me v biatlonu|mistrovstvi evropy v biatlonu)\b'
+
+  - id: diamond_league
+    sport: athletics
+    label: Diamond League
+    match: '\b(?:diamantov\w* lig\w*|diamond league)\b'
+
+  - id: ultimate_championship
+    sport: athletics
+    label: World Athletics Ultimate Championship
+    match: '\b(?:world athletics )?ultimate championship\b'
+
+  - id: czech_athletics_indoor
+    sport: athletics
+    label: Halové mistrovství ČR
+    match: '\bhmcr (?:muzu a zen|v atletice)\b|\bhalov\w* (?:mcr|mistrovstvi cr) (?:muzu a zen|v atletice)\b|\bmcr muzu a zen v hale\b'
+
+  - id: czech_athletics_outdoor
+    sport: athletics
+    label: Mistrovství ČR
+    match: '\b(?:atletik\w*|atletice)\b.*\b(?:mcr|mistrovstvi cr) muzu a zen\b|\b(?:mcr|mistrovstvi cr) v atletice\b'

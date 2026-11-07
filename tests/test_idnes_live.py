@@ -67,3 +67,26 @@ def test_irrelevant_channel_programme_does_not_fetch_detail(tmp_path, monkeypatc
     )
 
     assert list(scraper._scrape_channel("oneplaysport-4")) == []
+
+
+def test_structured_live_card_uses_local_grid_time_and_does_not_fetch_detail(tmp_path, monkeypatch):
+    scraper = make_scraper(tmp_path)
+    base = datetime(2026, 9, 16, 0, tzinfo=scraper.tz)
+    html = f'''
+    <script>TV.init({{den: new Date({int(base.timestamp() * 1000)})}});</script>
+    <a data-show="108423999" data-channel="99" data-start="1080" data-length="150"
+       href="/oneplaysport-4/st-18.00-tipsport-extraliga.id108423999">
+        <div class="x-spr x-live">
+            <h3>Tipsport extraliga</h3>
+            <p>HC Dynamo Pardubice - Mountfield HK</p>
+        </div>
+    </a>
+    '''
+    monkeypatch.setattr(scraper, "_fetch_html", lambda url: html)
+    monkeypatch.setattr(scraper, "_fetch_detail_html",
+                        lambda url: (_ for _ in ()).throw(AssertionError("complete card")))
+
+    row, = scraper._scrape_channel("oneplaysport-4")
+
+    assert row.start_local.isoformat() == "2026-09-16T18:00:00+02:00"
+    assert row.end_local.isoformat() == "2026-09-16T20:30:00+02:00"

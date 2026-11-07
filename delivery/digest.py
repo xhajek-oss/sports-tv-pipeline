@@ -5,12 +5,13 @@ import re
 import sqlite3
 import unicodedata
 from collections import defaultdict
-from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from dataclasses import dataclass, replace
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from matching.tv_matcher import TVMatcher, _hockey_matchup, _hockey_matchups, _hockey_matchups_equivalent
+from matching.idnes_rules import classify
+from matching.tv_matcher import _hockey_matchup, _hockey_matchups, _hockey_matchups_equivalent
 
 PRAGUE = ZoneInfo("Europe/Prague")
 UTC = timezone.utc
@@ -118,15 +119,6 @@ def _parse_dt(value: str | None) -> datetime | None:
     return dt.astimezone(UTC)
 
 
-def _sport_name(value: str) -> str:
-    n = _norm(value)
-    if "hockey" in n or "hokej" in n:
-        return "hockey"
-    if "biathlon" in n or "biatlon" in n:
-        return "biathlon"
-    return "athletics"
-
-
 def _country_cs(value: str | None) -> str | None:
     if not value:
         return None
@@ -160,30 +152,6 @@ def _channel_name(value: str) -> str:
 def _is_replay(*parts: str | None) -> bool:
     text = _norm(" ".join(part or "" for part in parts))
     return any(term in text for term in REPLAY_TERMS)
-
-
-def _event_live_end(event: sqlite3.Row) -> datetime:
-    start = _parse_dt(event["start_datetime"])
-    assert start is not None
-    explicit = _parse_dt(event["end_datetime"])
-    if explicit:
-        return explicit
-    fallback = {
-        "hockey": timedelta(hours=3, minutes=30),
-        "biathlon": timedelta(hours=2),
-        "athletics": timedelta(hours=4),
-    }[_sport_name(event["sport"])]
-    return start + fallback
-
-
-def _is_live_timing(event: sqlite3.Row, tv: sqlite3.Row) -> bool:
-    event_start = _parse_dt(event["start_datetime"])
-    tv_start = _parse_dt(tv["start_datetime"])
-    tv_end = _parse_dt(tv["end_datetime"])
-    if event_start is None or tv_start is None:
-        return False
-    effective_tv_end = tv_end or tv_start + timedelta(hours=3)
-    return tv_start <= _event_live_end(event) and effective_tv_end >= event_start - timedelta(hours=1)
 
 
 def _competition_cs(event: Broadcast) -> str:
@@ -276,6 +244,8 @@ def _group_key(b: Broadcast, local_day: date) -> str:
 def _oneplay_channel_evidence(row: Broadcast) -> tuple[str, bool]:
     """Return normalized channel and whether it explicitly identifies this fixture."""
     channel = _channel_name(row.channel)
+    if re.fullmatch(r"oneplay sport md\d+", _norm(channel)):
+        return channel, True
     if row.sport != "hockey" or not _norm(channel).startswith("oneplay sport"):
         return channel, False
     event_matchup = _hockey_matchup(row.event_name)
@@ -328,45 +298,42 @@ def _dedupe_broadcasts(rows: list[Broadcast]) -> tuple[Broadcast, ...]:
         best.setdefault((row.distribution, row.channel), row)
     return tuple(sorted(best.values(), key=lambda x: (x.tv_start, x.distribution != "tv", x.channel)))
 
+def youtube_broadcasts(db_path: str | Path, start_day: date, end_day: date) -> list[Broadcast]:
+    # The YouTube scraper copies the event name and UTC start from Atletika.cz.
+    start = datetime.combine(start_day, time.min, PRAGUE).astimezone(UTC)
+    end = datetime.combine(end_day, time.min, PRAGUE).astimezone(UTC)
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT e.id, e.name, e.competition, e.location, e.country,
+                      t.title, t.description, t.start_datetime, t.end_datetime, t.channel, t.source_url
+               FROM sports_events e JOIN tv_programs t
+                 ON e.name = t.title AND e.start_datetime = t.start_datetime
+               WHERE e.source = 'atletika_cz' AND t.source = 'czechathletics_youtube'
+                 AND t.start_datetime >= ? AND t.start_datetime < ?""",
+            (start.isoformat(), end.isoformat()),
+        ).fetchall()
+    broadcasts = []
+    for row in rows:
+        tv_start = _parse_dt(row["start_datetime"])
+        if tv_start is not None:
+            broadcasts.append(Broadcast(
+                event_id=row["id"], sport="athletics", competition=row["competition"],
+                event_name=row["name"], location=row["location"], country=row["country"],
+                source_url=row["source_url"], tv_start=tv_start.astimezone(PRAGUE),
+                tv_end=_parse_dt(row["end_datetime"]), channel=row["channel"],
+                distribution="online", tv_title=row["title"], tv_description=row["description"] or "",
+            ))
+    return broadcasts
+
+
 def collect_today_items(
     db_path: str | Path = "data/sports_events.db", *, now: datetime | None = None,
 ) -> list[DigestItem]:
-    now_local = (now or datetime.now(PRAGUE)).astimezone(PRAGUE)
-    today = now_local.date()
-    matcher = TVMatcher(db_path)
-    details = matcher.candidate_details(
-        c for c in matcher.find_candidates(min_score=70) if c.status == "match"
-    )
-
+    today = (now or datetime.now(PRAGUE)).astimezone(PRAGUE).date()
     grouped: dict[str, list[Broadcast]] = defaultdict(list)
-    event_starts: dict[str, datetime] = {}
-    for _, event, tv in details:
-        tv_start = _parse_dt(tv["start_datetime"])
-        if tv_start is None or tv_start.astimezone(PRAGUE).date() != today:
-            continue
-        if _is_replay(tv["title"] or "", tv["description"] or "") or not _is_live_timing(event, tv):
-            continue
-        b = Broadcast(
-            event_id=int(event["id"]),
-            sport=_sport_name(event["sport"]),
-            competition=event["competition"] or "",
-            event_name=event["name"] or "",
-            location=event["location"],
-            country=event["country"],
-            source_url=event["source_url"] or "",
-            tv_start=tv_start.astimezone(PRAGUE),
-            tv_end=_parse_dt(tv["end_datetime"]),
-            channel=tv["channel"] or "",
-            distribution=(tv["distribution"] or "tv").lower(),
-            tv_title=tv["title"] or "",
-            tv_description=tv["description"] or "",
-        )
-        key = _group_key(b, today)
-        grouped[key].append(b)
-        event_start = _parse_dt(event["start_datetime"])
-        if event_start is not None:
-            local_event_start = event_start.astimezone(PRAGUE)
-            event_starts[key] = min(event_starts.get(key, local_event_start), local_event_start)
+    for broadcast in youtube_broadcasts(db_path, today, today + timedelta(days=1)):
+        grouped[_group_key(broadcast, today)].append(broadcast)
 
     items: list[DigestItem] = []
     for key, rows in grouped.items():
@@ -374,17 +341,64 @@ def collect_today_items(
         if not broadcasts:
             continue
         first = min(rows, key=lambda x: x.tv_start)
-        if first.sport == "hockey":
-            title, location, country = _hockey_title(first), None, None
-        elif first.sport == "biathlon":
-            title = _biathlon_name_cs(first.event_name)
-            location, country = _location_cs(first.location), _country_cs(first.country)
-        else:
-            title, location, country = _athletics_title(first), None, None
         items.append(DigestItem(
-            key=key, sport=first.sport, competition=_competition_cs(first), title=title,
-            location=location, country=country, start=event_starts[key],
-            broadcasts=broadcasts,
+            key=key, sport=first.sport, competition=_competition_cs(first),
+            title=_athletics_title(first), location=None, country=None,
+            start=first.tv_start, broadcasts=broadcasts,
+        ))
+    for item in collect_idnes_items(db_path, today, today + timedelta(days=1)):
+        if item.competition in {"Mistrovství ČR", "Halové mistrovství ČR"} and item.sport == "athletics":
+            matches = [i for i, other in enumerate(items) if other.competition == item.competition]
+            if len(matches) == 1:
+                index = matches[0]
+                existing = items[index]
+                items[index] = replace(existing, broadcasts=_dedupe_broadcasts(
+                    [*existing.broadcasts, *item.broadcasts]
+                ))
+                continue
+        items.append(item)
+    return items
+
+
+def collect_idnes_items(db_path: str | Path, start_day: date, end_day: date) -> list[DigestItem]:
+    start = datetime.combine(start_day, time.min, PRAGUE).astimezone(UTC)
+    end = datetime.combine(end_day, time.min, PRAGUE).astimezone(UTC)
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """SELECT * FROM tv_programs WHERE source = 'idnes'
+               AND start_datetime >= ? AND start_datetime < ? ORDER BY start_datetime""",
+            (start.isoformat(), end.isoformat()),
+        ).fetchall()
+
+    grouped: dict[str, list[Broadcast]] = defaultdict(list)
+    for row in rows:
+        tv_start = _parse_dt(row["start_datetime"])
+        if tv_start is None:
+            continue
+        local_start = tv_start.astimezone(PRAGUE)
+        for selection in classify(row["title"], row["description"]):
+            identity = selection.key
+            if selection.rule.sport != "hockey" and selection.name == row["title"]:
+                identity += f"|{local_start:%H:%M}"
+            key = f"{local_start.date()}|{selection.rule.id}|{identity}"
+            channel = f"Oneplay Sport {selection.route}" if selection.route else row["channel"]
+            grouped[key].append(Broadcast(
+                event_id=row["id"], sport=selection.rule.sport, competition=selection.rule.label,
+                event_name=selection.name, location=None, country=None, source_url=row["source_url"],
+                tv_start=local_start, tv_end=_parse_dt(row["end_datetime"]),
+                channel=channel, distribution="tv", tv_title=row["title"],
+                tv_description=row["description"] or "",
+            ))
+
+    items: list[DigestItem] = []
+    for key, rows in grouped.items():
+        broadcasts = _dedupe_broadcasts(rows)
+        first = broadcasts[0]
+        items.append(DigestItem(
+            key=key, sport=first.sport, competition=first.competition,
+            title=_hockey_title(first) if first.sport == "hockey" else first.event_name,
+            location=None, country=None, start=first.tv_start, broadcasts=broadcasts,
         ))
     return items
 
@@ -398,7 +412,10 @@ def _media_lines(broadcasts: tuple[Broadcast, ...], main_start: datetime) -> lis
     for b in broadcasts:
         kind = "online" if b.distribution == "online" else "tv"
         channel = _channel_name(b.channel)
-        grouped[kind].append(html.escape(channel))
+        display = html.escape(channel)
+        if kind == "tv" and b.source_url.startswith("https://tvprogram.idnes.cz/") and b.tv_start != main_start:
+            display += f" ({b.tv_start:%H:%M})"
+        grouped[kind].append(display)
     lines: list[str] = []
     if grouped["tv"]:
         lines.append(" • ".join(f"📺 {entry}" for entry in grouped["tv"]))

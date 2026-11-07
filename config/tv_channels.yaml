@@ -1,6 +1,8 @@
 idnes:
   timezone: Europe/Prague
   max_pages_per_query: 5
+  search_fallback: false
+  extend_schedule: true
 
   # Primary discovery walks the concrete TV channel programme pages so we do
   # not depend on iDNES search pagination to discover broadcasts.
@@ -35,7 +37,7 @@ idnes:
     - hokej
 
   # iDNES channel slug (from URL) -> canonical channel name.
-  # ČT sport Plus is NOT here: it is an online-only ČT source and will use the ČT scraper.
+  # Only channels published by iDNES belong here.
   channels:
     ct-1: "ČT1"
     ct-2: "ČT2"

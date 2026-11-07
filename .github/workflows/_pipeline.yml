@@ -41,9 +41,9 @@ jobs:
           path: |
             data/sports_events.db
             data/production_snapshot.json
-          key: production-db-${{ github.run_id }}
+          key: production-db-idnes-v1-${{ github.run_id }}
           restore-keys: |
-            production-db-
+            production-db-idnes-v1-
 
       - name: Validate production snapshot
         if: inputs.mode == 'digest' || inputs.mode == 'digest_preview' || inputs.mode == 'weekly' || inputs.mode == 'weekly_preview' || inputs.mode == 'weekly_tv_diagnostic'
@@ -140,10 +140,6 @@ jobs:
               print(f"[ALERT] Telegram notification failed: {type(exc).__name__}: {exc}")
           PY
 
-      - name: Audit official IBU start times
-        if: inputs.mode == 'production' && (inputs.source == 'all' || inputs.source == 'biathlonworld')
-        run: python -c "from validation.ibu_datacenter import audit_persisted_ibu_starts; print('[IBU AUDIT] verified', audit_persisted_ibu_starts(), 'upcoming races')"
-
       - name: Mark successful production snapshot
         if: success() && inputs.mode == 'production'
         shell: bash
@@ -184,7 +180,7 @@ jobs:
           path: |
             data/sports_events.db
             data/production_snapshot.json
-          key: production-db-${{ github.run_id }}
+          key: production-db-idnes-v1-${{ github.run_id }}
 
       - name: Save health state
         if: always() && inputs.mode == 'health'

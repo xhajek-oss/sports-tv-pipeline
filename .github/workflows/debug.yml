@@ -12,11 +12,6 @@ on:
           - idnes
           - czechathletics_youtube
           - atletika_cz
-          - hcdynamo
-          - biathlonworld
-          - iihf
-          - diamondleague
-          - worldathletics
 
 jobs:
   debug:

@@ -27,18 +27,28 @@ scrapers + models + validation
 
 - `pr`: deterministic pre-merge validation; unit tests plus source registry validation; no external scrape.
 - `health`: checks sources without writing production data. State is persisted in `data/health_state.json`. Telegram is sent only when a source changes into a problem state or recovers.
-- `production`: restores the previous production SQLite database, scrapes each source independently, preserves prior data for sources that fail, validates sports event count changes, writes fresh data, and runs the TV matcher.
+- `production`: restores the previous production SQLite database, scrapes each source independently, preserves prior data for sources that fail, validates Czech athletics event counts, and atomically replaces the iDNES programme after a complete, nonempty scrape.
 - `debug`: runs one selected source and uploads parsed JSON plus an exception traceback when present.
 
 ## Source registry
 
-`app/registry.py` is the single place that maps source names to scraper implementations and source-specific policy. `allow_empty=True` is currently used for IIHF because an unpublished schedule is a valid state.
+`app/registry.py` is the single place that maps source names to scraper implementations and source-specific policy. The active sources are iDNES, Atletika.cz, and official Czech athletics YouTube streams discovered via Atletika.cz. A lack of scheduled YouTube streams is valid.
+
+## iDNES and reports
+
+The scraper reads channel grids over HTTP and resolves ambiguous programme
+details. Rules in `config/watched_sports.yaml` match the competition and, where
+required, the participants. Reports use iDNES broadcast times. Oneplay
+multigame blocks carry fixture-specific MD routes when iDNES supplies them.
+The weekly report also includes the Czech championships from Atletika.cz,
+which are paired with official YouTube streams by event name and date.
+Older organizer rows in restored databases are ignored by report queries.
 
 ## GitHub Actions
 
 - `pr-check.yml`: runs for pull requests to `main`.
-- `health.yml`: hourly and manual health monitoring.
-- `production.yml`: full production run every six hours and manually.
+- `health.yml`: manual health monitoring.
+- `production.yml`: manual production run.
 - `debug.yml`: manual diagnosis of exactly one source.
 - `_pipeline.yml`: reusable implementation shared by all workflows.
 

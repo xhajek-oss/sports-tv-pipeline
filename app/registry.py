@@ -4,13 +4,8 @@ from dataclasses import dataclass
 from typing import Callable, Literal
 
 from scrapers.atletika_cz import CzechAthleticsScraper
-from scrapers.biathlonworld import BiathlonWorldScraper
 from scrapers.czechathletics_youtube import CzechAthleticsYouTubeScraper
-from scrapers.diamondleague import DiamondLeagueScraper
-from scrapers.hcdynamo import HCDynamoScraper
 from scrapers.idnes_live import LiveIdnesTVScraper
-from scrapers.iihf import IIHFScraper
-from scrapers.worldathletics_cz import CzechWorldAthleticsScraper
 
 
 SourceKind = Literal["sports", "tv"]
@@ -25,14 +20,6 @@ class SourceSpec:
 
 
 SOURCES: dict[str, SourceSpec] = {
-    "hcdynamo": SourceSpec("hcdynamo", "sports", HCDynamoScraper),
-    "biathlonworld": SourceSpec("biathlonworld", "sports", BiathlonWorldScraper),
-    "iihf": SourceSpec("iihf", "sports", IIHFScraper, allow_empty=True),
-    # The scraper intentionally returns only current/future meetings. Once the
-    # Diamond League season is over, an empty result is therefore expected and
-    # must not generate a false health alert.
-    "diamondleague": SourceSpec("diamondleague", "sports", DiamondLeagueScraper, allow_empty=True),
-    "worldathletics": SourceSpec("worldathletics", "sports", CzechWorldAthleticsScraper),
     "atletika_cz": SourceSpec("atletika_cz", "sports", CzechAthleticsScraper),
     "idnes": SourceSpec("idnes", "tv", LiveIdnesTVScraper),
     "czechathletics_youtube": SourceSpec(

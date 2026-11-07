@@ -57,6 +57,8 @@ class IdnesTVScraper:
         self.channels: dict[str, str] = config["channels"]
         self.crawl_channels: list[str] = config.get("crawl_channels", [])
         self.search_queries: list[str] = config.get("search_queries", [])
+        self.extend_schedule = config.get("extend_schedule", False)
+        self.search_fallback = config.get("search_fallback", True)
         self.max_pages_per_query = int(config.get("max_pages_per_query", 5))
         self.timeout = timeout
         self.now = now.astimezone(self.tz) if now else datetime.now(self.tz)
@@ -400,9 +402,10 @@ class IdnesTVScraper:
 
             # Keep search crawling as an additive compatibility fallback. The
             # dedupe keys prevent the same broadcast from being stored twice.
-            for query in self.search_queries:
-                for item in self._scrape_query(query):
-                    append_item(item)
+            if self.search_fallback:
+                for query in self.search_queries:
+                    for item in self._scrape_query(query):
+                        append_item(item)
         finally:
             self._close_browser()
         programs.sort(key=lambda p: (p.start_datetime, p.channel, p.title))

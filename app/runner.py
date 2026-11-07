@@ -11,7 +11,6 @@ from typing import Iterable
 from app.registry import SourceSpec, selected_sources
 from delivery.digest import build_today_digest
 from delivery.weekly import build_next_week_report
-from matching.tv_matcher import TVMatcher
 from monitoring.health import HealthStateStore, classify_health, jsonable
 from monitoring.telegram import format_transition, send_digest, send_telegram
 from storage.sqlite import SQLiteStorage
@@ -102,9 +101,6 @@ class PipelineRunner:
 
     def run_production(self, source: str = "all") -> list[SourceRun]:
         storage = SQLiteStorage(self.db_path)
-        removed = storage.purge_non_snow_biathlon()
-        if removed:
-            print(f"[PROD] removed {removed} legacy non-snow biathlon races")
         validator = EventCountValidator(self.validation_state)
         results: list[SourceRun] = []
         selected = selected_sources(source)
@@ -124,12 +120,13 @@ class PipelineRunner:
                     warnings = validation.warnings
                     for item in items:
                         storage.upsert(item)
-                    if spec.name == "hcdynamo" and items and not warnings:
-                        removed_stale = storage.reconcile_hcdynamo(items)
-                        print(f"[PROD] hcdynamo: reconciled {removed_stale} stale future fixtures")
-                    if spec.name == "biathlonworld" and items and not warnings:
-                        removed_stale = storage.reconcile_biathlon(items)
-                        print(f"[PROD] biathlonworld: reconciled {removed_stale} stale future races")
+                elif spec.name == "idnes":
+                    if not items:
+                        message = "empty iDNES schedule; previous DB data preserved"
+                        print(f"[PROD] {spec.name}: {message}")
+                        results.append(SourceRun(spec.name, spec.kind, 0, "down", message))
+                        continue
+                    storage.replace_idnes_programs(items)
                 else:
                     for item in items:
                         storage.upsert_tv_program(item)
@@ -141,13 +138,6 @@ class PipelineRunner:
         finally:
             storage.close()
 
-        if source == "all" or any(spec.kind == "tv" for spec in selected):
-            try:
-                matches = TVMatcher(self.db_path).find_candidates(min_score=50)
-                print(f"[PROD] matcher candidates={len(matches)}")
-            except Exception as exc:
-                print(f"[PROD] matcher ERROR: {exc}")
-                results.append(SourceRun("tv_matcher", "matcher", 0, "down", str(exc)))
         return results
 
     def run_digest_preview(self) -> list[SourceRun]:
@@ -183,36 +173,20 @@ class PipelineRunner:
             return [SourceRun("telegram_digest", "delivery", 0, "down", str(exc))]
 
     def run_weekly_tv_diagnostic(self) -> list[SourceRun]:
-        """Explain missing weekly TV assignments; never send messages."""
-        import sqlite3
+        """List the iDNES selections and their source URLs without sending messages."""
         from datetime import timedelta
-        from delivery.weekly import collect_next_week_events
-        from matching.tv_matcher import _parse_dt, _hockey_matchups, score_pair
+        from delivery.digest import collect_idnes_items
+        from delivery.weekly import next_week_range
 
-        events = [e for e in collect_next_week_events(self.db_path) if e.sport == "hockey" and not e.broadcasts]
-        with sqlite3.connect(self.db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            sports = {row["id"]: row for row in conn.execute("SELECT * FROM sports_events")}
-            tv_rows = conn.execute("SELECT * FROM tv_programs").fetchall()
-        print(f"[WEEKLY TV DIAGNOSTIC] unmatched_hockey={len(events)}")
-        for event in events:
-            row = sports[event.event_id]
-            start = _parse_dt(row["start_datetime"])
-            nearby = []
-            for tv in tv_rows:
-                tv_start = _parse_dt(tv["start_datetime"])
-                if not start or not tv_start or abs(tv_start - start) > timedelta(hours=5):
-                    continue
-                candidate = score_pair(row, tv)
-                matchups = _hockey_matchups((tv["title"] or "") + "\\n" + (tv["description"] or ""))
-                nearby.append((abs((tv_start - start).total_seconds()), tv, candidate, bool(matchups)))
-            nearby.sort(key=lambda item: item[0])
-            print(f"[WEEKLY TV DIAGNOSTIC] EVENT {event.start.isoformat()} {event.name}; nearby_tv={len(nearby)}")
-            for _, tv, candidate, explicit_matchup in nearby[:15]:
-                print(f"[WEEKLY TV DIAGNOSTIC] TV channel={tv['channel']!r} start={tv['start_datetime']} title={tv['title']!r} score={candidate.score} status={candidate.status} explicit_matchup={explicit_matchup} reasons={candidate.reasons}")
-            if not nearby:
-                print("[WEEKLY TV DIAGNOSTIC] No TV schedule entries within five hours")
-        return [SourceRun("weekly_tv_diagnostic", "diagnostic", len(events), "healthy", "read-only; no Telegram sent")]
+        monday, sunday = next_week_range()
+        items = collect_idnes_items(self.db_path, monday, sunday + timedelta(days=1))
+        for item in sorted(items, key=lambda event: event.start):
+            for broadcast in item.broadcasts:
+                print(
+                    f"[WEEKLY TV DIAGNOSTIC] {broadcast.tv_start.isoformat()} "
+                    f"{item.competition} | {item.title} | {broadcast.channel} | {broadcast.source_url}"
+                )
+        return [SourceRun("weekly_tv_diagnostic", "diagnostic", len(items), "healthy", "read-only; no Telegram sent")]
 
     def run_weekly_preview(self) -> list[SourceRun]:
         """Print next week's report without contacting Telegram."""

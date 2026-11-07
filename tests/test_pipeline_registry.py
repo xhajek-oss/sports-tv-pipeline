@@ -2,7 +2,7 @@ from app.registry import SOURCES, selected_sources
 
 
 def test_registry_contains_expected_sources():
-    assert {"hcdynamo", "biathlonworld", "iihf", "diamondleague", "worldathletics", "idnes"} <= set(SOURCES)
+    assert set(SOURCES) == {"idnes", "atletika_cz", "czechathletics_youtube"}
 
 
 def test_selected_sources_supports_single_and_all():
@@ -10,5 +10,5 @@ def test_selected_sources_supports_single_and_all():
     assert len(selected_sources("all")) == len(SOURCES)
 
 
-def test_iihf_allows_empty_schedule():
-    assert SOURCES["iihf"].allow_empty is True
+def test_youtube_can_have_no_scheduled_streams():
+    assert SOURCES["czechathletics_youtube"].allow_empty is True

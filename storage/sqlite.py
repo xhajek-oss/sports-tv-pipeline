@@ -169,6 +169,19 @@ class SQLiteStorage:
         self.conn.commit()
 
     def upsert_tv_program(self, program: TVProgram):
+        with self.conn:
+            self._write_tv_program(program)
+
+    def replace_idnes_programs(self, programs: list[TVProgram]) -> None:
+        """Replace the guide atomically after a complete, nonempty scrape."""
+        if not programs or any(program.source != "idnes" for program in programs):
+            raise ValueError("Expected a nonempty iDNES schedule")
+        with self.conn:
+            self.conn.execute("DELETE FROM tv_programs WHERE source = 'idnes'")
+            for program in programs:
+                self._write_tv_program(program)
+
+    def _write_tv_program(self, program: TVProgram) -> None:
         self.conn.execute(
             """
             INSERT INTO tv_programs (
@@ -199,7 +212,6 @@ class SQLiteStorage:
                 program.distribution,
             ),
         )
-        self.conn.commit()
 
     def close(self):
         self.conn.close()
