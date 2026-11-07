@@ -58,6 +58,7 @@ class IdnesTVScraper:
         self.crawl_channels: list[str] = config.get("crawl_channels", [])
         self.search_queries: list[str] = config.get("search_queries", [])
         self.extend_schedule = config.get("extend_schedule", False)
+        self.grouped_schedule = config.get("grouped_schedule", False)
         self.search_fallback = config.get("search_fallback", True)
         self.max_pages_per_query = int(config.get("max_pages_per_query", 5))
         self.timeout = timeout
@@ -360,6 +361,10 @@ class IdnesTVScraper:
             yield from relevant
             url = self._next_page_url(html, url)
 
+    def _scrape_schedules(self) -> Iterable[ParsedSchedule]:
+        for channel_slug in self.crawl_channels:
+            yield from self._scrape_channel(channel_slug)
+
     def scrape(self) -> list[TVProgram]:
         discovered_at = datetime.now(timezone.utc)
         programs: list[TVProgram] = []
@@ -393,12 +398,8 @@ class IdnesTVScraper:
             )
 
         try:
-            # Primary discovery: concrete channel schedules. This avoids losing
-            # broadcasts because an iDNES search result is beyond pagination or
-            # has a generic title such as "Tipsport extraliga".
-            for channel_slug in self.crawl_channels:
-                for item in self._scrape_channel(channel_slug):
-                    append_item(item)
+            for item in self._scrape_schedules():
+                append_item(item)
 
             # Keep search crawling as an additive compatibility fallback. The
             # dedupe keys prevent the same broadcast from being stored twice.

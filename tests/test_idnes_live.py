@@ -90,3 +90,132 @@ def test_structured_live_card_uses_local_grid_time_and_does_not_fetch_detail(tmp
 
     assert row.start_local.isoformat() == "2026-09-16T18:00:00+02:00"
     assert row.end_local.isoformat() == "2026-09-16T20:30:00+02:00"
+
+
+def _grid(base, schedules, tz):
+    start = datetime.combine(base, datetime.min.time(), tz)
+    html = [f'<script>TV.init({{den: new Date({int(start.timestamp() * 1000)})}});</script>']
+    for when, channel, title in schedules:
+        minutes = int((when - start).total_seconds() / 60)
+        day = ("po", "ut", "st", "ct", "pa", "so", "ne")[when.weekday()]
+        id_ = f"{when:%Y%m%d%H%M}{channel == 'ct-2':d}"
+        html.append(
+            f'<a data-show="{id_}" data-channel="99" data-start="{minutes}" data-length="90" '
+            f'href="/{channel}/{day}-{when:%H.%M}-porad.id{id_}">'
+            f'<div class="x-live"><h3>{title}</h3></div></a>'
+        )
+    return "".join(html)
+
+
+def test_grouped_schedule_keeps_today_and_weekly_with_channel_fallback(tmp_path, monkeypatch):
+    from datetime import timedelta
+
+    from delivery.digest import build_today_digest
+    from delivery.weekly import build_next_week_report
+    from storage.sqlite import SQLiteStorage
+
+    scraper = make_scraper(tmp_path)
+    scraper.grouped_schedule = True
+    scraper.search_fallback = False
+    scraper.channels["ct-2"] = "ČT2"
+    scraper.crawl_channels.append("ct-2")
+    today = scraper.now.date()
+    days = [today + timedelta(days=i) for i in range(9)]
+    previous_day = today - timedelta(days=1)
+    hockey = "ELH: Dynamo Pardubice – HC Kometa Brno"
+    channel = "oneplaysport-4"
+    requests = []
+
+    def at(day, hour=18, minute=0):
+        return datetime(day.year, day.month, day.day, hour, minute, tzinfo=scraper.tz)
+
+    def fetch(url):
+        requests.append(url)
+        if url.endswith("/ct-2"):
+            return _grid(today, [(at(day), "ct-2", "Film") for day in days[:-1]], scraper.tz)
+        if "program=99" in url:
+            return _grid(days[-1], [(at(days[-1]), "ct-2", "Film")], scraper.tz)
+        if url.endswith("/oneplaysport-4"):
+            return _grid(today, [(at(days[-1]), channel, hockey)], scraper.tz)
+        day = datetime.strptime(url.split("=")[-1], "%d.%m.%Y").date()
+        if day == previous_day:
+            return _grid(day, [(at(today, 0, 30), channel, hockey)], scraper.tz)
+        if day == days[-1]:
+            # A redirect to an earlier date must not count as coverage.
+            return _grid(days[-2], [(at(days[-2]), channel, "Film")], scraper.tz)
+        return _grid(day, [(at(day), channel, "Film")], scraper.tz)
+
+    monkeypatch.setattr(scraper, "_fetch_html", fetch)
+    monkeypatch.setattr(scraper, "_fetch_detail_html",
+                        lambda url: (_ for _ in ()).throw(AssertionError("complete card")))
+    rows = scraper.scrape()
+
+    assert [row.start_datetime.astimezone(scraper.tz) for row in rows] == [
+        at(today, 0, 30), at(days[-1]),
+    ]
+    assert len(requests) == len(days) + 4
+    db = tmp_path / "sports.db"
+    storage = SQLiteStorage(db)
+    storage.replace_idnes_programs(rows)
+    storage.close()
+    assert "00:30" in build_today_digest(db, now=scraper.now)
+    weekly = build_next_week_report(db, now=scraper.now)
+    assert "18:00" in weekly and "00:30" not in weekly
+
+
+def test_incomplete_grouped_schedule_preserves_last_snapshot(tmp_path, monkeypatch):
+    from app.registry import SOURCES, SourceSpec
+    from app.runner import PipelineRunner
+    from models.tv_program import TVProgram
+    from storage.sqlite import SQLiteStorage
+
+    scraper = make_scraper(tmp_path)
+    scraper.grouped_schedule = True
+    monkeypatch.setattr(scraper, "_fetch_html", lambda url: "<html>Unavailable</html>")
+    monkeypatch.setitem(SOURCES, "idnes", SourceSpec("idnes", "tv", lambda: scraper, allow_empty=True))
+    db = tmp_path / "sports.db"
+    storage = SQLiteStorage(db)
+    storage.upsert_tv_program(TVProgram(
+        "idnes", "previous", "Oneplay Sport 4", "Tipsport extraliga", None,
+        scraper.now, None, "https://tvprogram.idnes.cz/", scraper.now,
+    ))
+    storage.close()
+
+    runner = PipelineRunner(db_path=str(db), validation_state=str(tmp_path / "validation.json"))
+    result, = runner.run_production("idnes")
+
+    assert result.status == "down"
+    storage = SQLiteStorage(db)
+    assert storage.conn.execute("SELECT source_id FROM tv_programs").fetchall() == [("previous",)]
+    storage.close()
+
+
+def test_truncated_oneplay_card_reads_routes_from_full_detail(tmp_path, monkeypatch):
+    from bs4 import BeautifulSoup
+    from matching.idnes_rules import classify
+
+    scraper = make_scraper(tmp_path)
+    base = datetime(2026, 9, 16, 0, tzinfo=scraper.tz)
+    card = """
+    <a data-show="123" data-channel="99" data-start="1080" data-length="150"
+       href="/oneplaysport-4/st-18.00-tipsport-extraliga.id123">
+       <div class="x-live"><h3>Tipsport extraliga</h3>
+         <p>Oneplay Sport MD7 - ELH: HC Dynamo Pardubice-HC Kometa Brno;...</p>
+       </div>
+    </a>
+    """
+    detail = f"""
+    <h1>Tipsport extraliga</h1>
+    <p>16. 9. 2026, 18:00</p>
+    <p>Přímý přenos Tipsport extraligy. Oneplay Sport MD7 - ELH: HC Dynamo Pardubice-HC Kometa Brno;
+    {"delší programový popis " * 75};
+    Oneplay Sport MD10 - ELH: HC Dynamo Pardubice-HC Kometa Brno</p>
+    <p>Přidat do mého TV programu</p>
+    """
+    monkeypatch.setattr(scraper, "_fetch_detail_html", lambda url: detail)
+    anchors = BeautifulSoup(card, "html.parser").find_all("a")
+
+    row, = scraper._parse_cards(anchors, "https://tvprogram.idnes.cz/sportovni", set(), base)
+
+    assert {item.route for item in classify(row.title, row.description)} == {"MD7", "MD10"}
+    assert row.end_local.hour == 20 and row.end_local.minute == 30

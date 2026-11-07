@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import re
-from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass, replace
+from datetime import date, datetime, timedelta, timezone
 from typing import Iterable
 from urllib.parse import urlencode, urljoin, urlparse
 
 import requests
 from bs4 import BeautifulSoup, Tag
 
-from matching.idnes_rules import LIVE, REPLAY, classify, is_candidate
+from matching.idnes_rules import REPLAY, classify, is_candidate, needs_hockey_detail
 from matching.tv_matcher import _norm
 
 from scrapers.idnes import BASE_URL, IdnesTVScraper, ParsedSchedule
@@ -20,6 +20,15 @@ DETAIL_DATETIME_RE = re.compile(
     r"(?P<day>\d{1,2})\.\s*(?P<month>\d{1,2})\.\s*(?P<year>\d{4}),\s*"
     r"(?P<hour>\d{1,2}):(?P<minute>\d{2})"
 )
+
+
+@dataclass
+class ScheduleGrid:
+    url: str
+    base: datetime
+    cards: list[Tag]
+    coverage: set[tuple[str, date]]
+    channel_ids: dict[str, str]
 
 
 class LiveIdnesTVScraper(IdnesTVScraper):
@@ -36,18 +45,29 @@ class LiveIdnesTVScraper(IdnesTVScraper):
     def _fetch_detail_html(self, url: str) -> str:
         return self._fetch_html(url)
 
-    def _card_schedule(self, anchor: Tag, url: str, base: datetime | None) -> ParsedSchedule | None:
-        parts = self._detail_parts(url)
-        title = anchor.select_one("h3")
-        if parts is None or base is None or title is None:
+    def _card_start(self, anchor: Tag, parts: dict[str, str], base: datetime | None) -> datetime | None:
+        if base is None:
             return None
         try:
             start = base + timedelta(minutes=int(anchor["data-start"]))
-            end = (start.astimezone(timezone.utc) + timedelta(minutes=int(anchor["data-length"]))).astimezone(self.tz)
-        except (KeyError, ValueError, OverflowError):
+        except (KeyError, TypeError, ValueError, OverflowError):
             return None
         day = ("po", "ut", "st", "ct", "pa", "so", "ne")[start.weekday()]
-        if (day, start.hour, start.minute) != (parts["dow"], int(parts["hour"]), int(parts["minute"])):
+        if (day, start.hour, start.minute) == (parts["dow"], int(parts["hour"]), int(parts["minute"])):
+            return start
+        return None
+
+    def _card_schedule(self, anchor: Tag, url: str, base: datetime | None) -> ParsedSchedule | None:
+        parts = self._detail_parts(url)
+        title = anchor.select_one("h3")
+        if parts is None or title is None:
+            return None
+        start = self._card_start(anchor, parts, base)
+        if start is None:
+            return None
+        try:
+            end = (start.astimezone(timezone.utc) + timedelta(minutes=int(anchor["data-length"]))).astimezone(self.tz)
+        except (KeyError, TypeError, ValueError, OverflowError):
             return None
         paragraphs = [p.get_text(" ", strip=True) for p in anchor.select("p")]
         description = " ".join(text for text in paragraphs if text)
@@ -144,8 +164,6 @@ class LiveIdnesTVScraper(IdnesTVScraper):
             description_parts.append(value)
 
         description = " ; ".join(description_parts).strip(" ;") or None
-        if description:
-            description = description[:1500]
 
         # iDNES detail pages expose the exact start but not the end. Four hours
         # is a conservative envelope used only for overlap matching; report
@@ -161,6 +179,115 @@ class LiveIdnesTVScraper(IdnesTVScraper):
             end_local=end_local,
             source_url=source_url,
         )
+
+    def _grid_base(self, html: str) -> datetime | None:
+        match = GRID_BASE_RE.search(html)
+        return datetime.fromtimestamp(int(match[1]) / 1000, self.tz) if match else None
+
+    def _scan_grid(
+        self, url: str, wanted: set[tuple[str, date]], *, expected_day: date | None = None,
+    ) -> ScheduleGrid:
+        html = self._fetch_html(url)
+        base = self._grid_base(html)
+        if base is None or (expected_day is not None and base.date() != expected_day):
+            raise RuntimeError(f"Unexpected iDNES grid date for {url}")
+        channels = {channel for channel, _ in wanted}
+        coverage: set[tuple[str, date]] = set()
+        cards: list[Tag] = []
+        channel_ids: dict[str, str] = {}
+        grid_cards = BeautifulSoup(html, "html.parser").select("a[data-show][href]")
+        if not grid_cards:
+            raise RuntimeError(f"Empty iDNES programme grid for {url}")
+        for card in grid_cards:
+            href = urljoin(url, card["href"])
+            parts = self._detail_parts(href)
+            if not parts or parts["channel"] not in channels or urlparse(href).hostname != urlparse(BASE_URL).hostname:
+                continue
+            if not self._source_id(href):
+                continue
+            if card.get("data-channel", "").isdecimal():
+                channel_ids[parts["channel"]] = card["data-channel"]
+            start = self._card_start(card, parts, base)
+            if start is None:
+                # A malformed candidate can still be resolved by its dated detail.
+                cards.append(card)
+                continue
+            key = (parts["channel"], start.date())
+            if key in wanted:
+                coverage.add(key)
+                cards.append(card)
+        return ScheduleGrid(url, base, cards, coverage, channel_ids)
+
+    def _scrape_schedules(self) -> Iterable[ParsedSchedule]:
+        if not self.grouped_schedule:
+            yield from super()._scrape_schedules()
+            return
+
+        today = self.now.date()
+        # Weekly uses the following Monday through Sunday. Keep every date from
+        # today in the same snapshot so Digest has today's schedule as well.
+        days = [today + timedelta(days=offset) for offset in range(14 - today.weekday())]
+        wanted = {(channel, day) for channel in self.crawl_channels for day in days}
+        missing = set(wanted)
+        pages: list[ScheduleGrid] = []
+        channel_ids: dict[str, str] = {}
+        previous_day = today - timedelta(days=1)
+        overnight_channels: set[str] = set()
+        for day in [previous_day, *days]:
+            url = urljoin(BASE_URL, "sportovni") + f"?dt={day:%d.%m.%Y}"
+            try:
+                grid = self._scan_grid(url, wanted, expected_day=day)
+            except (RuntimeError, ValueError) as exc:
+                print(f"[IDNES] grouped day={day} unavailable: {exc}")
+                continue
+            channel_ids.update(grid.channel_ids)
+            # Overnight spill can contain a real broadcast but does not prove
+            # that the following day's channel schedule was published.
+            if day == previous_day:
+                overnight_channels.update(grid.channel_ids)
+            missing.difference_update(
+                pair for pair in grid.coverage
+                if pair[1] == day and (day != today or pair[0] in overnight_channels)
+            )
+            pages.append(grid)
+
+        for channel in self.crawl_channels:
+            uncovered = {pair for pair in missing if pair[0] == channel}
+            if not uncovered:
+                continue
+            url = urljoin(BASE_URL, channel)
+            try:
+                grid = self._scan_grid(url, uncovered)
+            except (RuntimeError, ValueError) as exc:
+                print(f"[IDNES] channel grid={channel} unavailable: {exc}")
+            else:
+                channel_ids.update(grid.channel_ids)
+                missing.difference_update(grid.coverage)
+                uncovered -= grid.coverage
+                pages.append(grid)
+
+            if channel_id := channel_ids.get(channel):
+                # A dated channel grid can fill several uncovered days.
+                while uncovered:
+                    first_day = min(day for _, day in uncovered)
+                    query = urlencode({"dt": f"{first_day:%d.%m.%Y}", "program": channel_id})
+                    grid = self._scan_grid(f"{BASE_URL}?{query}", uncovered, expected_day=first_day)
+                    if (channel, first_day) not in grid.coverage:
+                        break
+                    missing.difference_update(grid.coverage)
+                    uncovered -= grid.coverage
+                    pages.append(grid)
+
+        if missing:
+            gaps = ", ".join(f"{channel}/{day}" for channel, day in sorted(missing))
+            raise RuntimeError(f"Incomplete iDNES schedule: {gaps}")
+
+        print(f"[IDNES] {len(wanted)} channel/date pairs verified in {len(pages)} grids")
+        seen: set[str] = set()
+        for grid in pages:
+            for item in self._parse_cards(grid.cards, grid.url, seen, grid.base):
+                if today <= item.start_local.date() <= days[-1]:
+                    yield item
 
     def _scrape_channel(self, channel_slug: str) -> Iterable[ParsedSchedule]:
         url = urljoin(BASE_URL, channel_slug)
@@ -194,25 +321,26 @@ class LiveIdnesTVScraper(IdnesTVScraper):
 
         seen: set[str] = set()
         for page_html, page_cards in pages:
-            yield from self._parse_cards(page_html, page_cards, url, seen)
+            yield from self._parse_cards(page_cards, url, seen, self._grid_base(page_html))
         print(f"[IDNES] channel={channel_slug} cards={len(seen)}")
 
     def _parse_cards(
-        self, html: str, cards: list[Tag], url: str, seen: set[str],
+        self, cards: list[Tag], url: str, seen: set[str], base: datetime | None,
     ) -> Iterable[ParsedSchedule]:
-        match = GRID_BASE_RE.search(html)
-        base = datetime.fromtimestamp(int(match[1]) / 1000, self.tz) if match else None
         for anchor in cards:
             detail_url = urljoin(url, anchor["href"])
-            if urlparse(detail_url).hostname != urlparse(BASE_URL).hostname or detail_url in seen:
+            source_id = self._source_id(detail_url)
+            parts = self._detail_parts(detail_url)
+            if urlparse(detail_url).hostname != urlparse(BASE_URL).hostname or not source_id or not parts:
                 continue
-            seen.add(detail_url)
-            if not is_candidate(anchor.get_text(" ", strip=True)) or not self._source_id(detail_url):
+            key = f"{parts['channel']}:{source_id}"
+            if key in seen or not is_candidate(anchor.get_text(" ", strip=True)):
                 continue
             item = self._card_schedule(anchor, detail_url, base)
             summary = (item.description or "").removesuffix("; Živě").strip() if item else ""
             truncated = summary.endswith(("...", "…"))
             if item and not truncated and classify(item.title, item.description):
+                seen.add(key)
                 yield item
                 continue
             if item and item.description:
@@ -220,14 +348,13 @@ class LiveIdnesTVScraper(IdnesTVScraper):
                     continue
                 # A complete summary has already provided the same evidence as the
                 # detail. Empty, visibly shortened or missing summaries need a read.
-                if len(summary.split()) > 3 and not truncated:
-                    continue
-                if _norm(summary) == "zive":
-                    summary = ""
-                if summary and not truncated and not LIVE.search(_norm(item.description)):
+                if len(summary.split()) > 3 and not truncated and not needs_hockey_detail(item.title, summary):
                     continue
             detail = self.parse_detail_html(self._fetch_detail_html(detail_url), detail_url)
-            if item and item.description and item.description.endswith("Živě"):
+            seen.add(key)
+            if item and item.start_local == detail.start_local:
+                detail = replace(detail, end_local=item.end_local)
+            if anchor.select_one(".x-live"):
                 detail = replace(detail, description=f"{detail.description or ''}; Živě".strip("; "))
             if classify(detail.title, detail.description):
                 yield detail

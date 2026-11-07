@@ -3,9 +3,9 @@ idnes:
   max_pages_per_query: 5
   search_fallback: false
   extend_schedule: true
+  grouped_schedule: true
 
-  # Primary discovery walks the concrete TV channel programme pages so we do
-  # not depend on iDNES search pagination to discover broadcasts.
+  # The sport grid is supplemented by channel schedules for uncovered dates.
   crawl_channels:
     - ct-1
     - ct-2

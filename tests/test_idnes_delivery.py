@@ -96,3 +96,25 @@ def test_czech_athletics_youtube_is_still_independent(tmp_path):
     daily = build_today_digest(db, now=start)
     assert weekly is not None and "💻 YouTube" in weekly
     assert daily is not None and "💻 YouTube" in daily
+
+
+def test_hockey_fixture_preserves_hyphenated_opponent_and_normalizes_dynamo():
+    first, = classify("Tipsport ELH", "HC Frýdek-Místek – HC Dynamo Pardubice. Přímý přenos")
+    second, = classify("Tipsport ELH", "Pardubice-HC Frýdek-Místek. Přímý přenos")
+
+    assert first.name == "HC Frýdek-Místek – HC Dynamo Pardubice"
+    assert first.key == second.key
+    assert not classify("Tipsport ELH", "HC Dynamo Pardubice B – HC Kometa Brno. Přímý přenos")
+
+
+def test_additional_competition_aliases_keep_the_same_sport_and_live_checks():
+    for title, summary, expected in [
+        ("Biatlon: ME 2026", "Přímý přenos sprintu žen", "biathlon_others"),
+        ("ZOH 2026: Biatlon", "Přímý přenos sprintu žen", "biathlon_others"),
+        ("Atletika: Atletika ČR 2026", "HMČR Ostrava. Přímý přenos", "czech_athletics_indoor"),
+    ]:
+        selection, = classify(title, summary)
+        assert selection.rule.id == expected
+    assert not classify("Biatlon: ME 2026 juniorů", "Přímý přenos sprintu žen")
+    assert not classify("ZOH 2026: Běh na lyžích", "Přímý přenos sprintu žen")
+    assert not classify("Atletika: Atletika ČR 2026", "HMČR Ostrava. Záznam")

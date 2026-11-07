@@ -36,9 +36,13 @@ scrapers + models + validation
 
 ## iDNES and reports
 
-The scraper reads channel grids over HTTP and resolves ambiguous programme
-details. Rules in `config/watched_sports.yaml` match the competition and, where
-required, the participants. Reports use iDNES broadcast times. Oneplay
+The scraper reads daily sports grids over HTTP from the current Prague date
+through the end of the following week. It also reads the preceding grid for
+programmes after midnight and uses individual channel grids to fill gaps.
+An incomplete date and channel matrix fails the scrape and preserves the
+previous snapshot. Ambiguous programme cards are resolved from their details.
+Rules in `config/watched_sports.yaml` match the competition and, where required,
+the participants. Reports use iDNES broadcast times. Oneplay
 multigame blocks carry fixture-specific MD routes when iDNES supplies them.
 The weekly report also includes the Czech championships from Atletika.cz,
 which are paired with official YouTube streams by event name and date.
