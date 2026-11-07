@@ -72,12 +72,16 @@ jobs:
 
           completed_at = datetime.fromisoformat(meta['completed_at'].replace('Z', '+00:00'))
           age = datetime.now(timezone.utc) - completed_at.astimezone(timezone.utc)
-          max_age_seconds = 8 * 60 * 60
+          weekly = os.environ['MODE'] in ('weekly', 'weekly_preview', 'weekly_tv_diagnostic')
+          max_age_seconds = (7 * 24 if weekly else 8) * 60 * 60
           print(f"Using last successful Production snapshot run_id={meta.get('run_id')} age={int(age.total_seconds())}s limit={max_age_seconds}s")
           if age.total_seconds() < 0:
               raise SystemExit(f"Production snapshot timestamp is in the future; refusing to send {os.environ['MODE']}.")
           if age.total_seconds() > max_age_seconds:
               raise SystemExit(f"Production snapshot is stale; refusing to send {os.environ['MODE']}.")
+          if weekly and age.total_seconds() > 8 * 60 * 60:
+              with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env_file:
+                  env_file.write(f"WEEKLY_SNAPSHOT_STALE_HOURS={int(age.total_seconds() // 3600)}\n")
 
           with sqlite3.connect(db_path) as conn:
               result = conn.execute('PRAGMA quick_check').fetchone()
@@ -114,6 +118,27 @@ jobs:
           TELEGRAM_HEALTH_CHAT_ID: ${{ secrets.TELEGRAM_HEALTH_CHAT_ID }}
           TELEGRAM_DIGEST_CHAT_ID: ${{ secrets.TELEGRAM_DIGEST_CHAT_ID }}
         run: python runner.py --mode '${{ inputs.mode }}' --source '${{ inputs.source }}'
+
+      - name: Notify Telegram on pipeline failure
+        if: ${{ failure() && (inputs.mode == 'production' || inputs.mode == 'digest' || inputs.mode == 'weekly') }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_HEALTH_CHAT_ID: ${{ secrets.TELEGRAM_HEALTH_CHAT_ID }}
+          TELEGRAM_DIGEST_CHAT_ID: ${{ secrets.TELEGRAM_DIGEST_CHAT_ID }}
+          PIPELINE_MODE: ${{ inputs.mode }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import os
+          from monitoring.telegram import send_telegram, send_digest
+          mode = os.environ['PIPELINE_MODE']
+          message = f"🔴 Sports TV Pipeline: {mode} selhal.\nReport nemusel byt odeslan.\nDetail: {os.environ['RUN_URL']}"
+          try:
+              sent = send_telegram(message) if mode == 'production' else send_digest(message)
+              print(f"[ALERT] failure notification sent={sent}")
+          except Exception as exc:
+              print(f"[ALERT] Telegram notification failed: {type(exc).__name__}: {exc}")
+          PY
 
       - name: Audit official IBU start times
         if: inputs.mode == 'production' && (inputs.source == 'all' || inputs.source == 'biathlonworld')
