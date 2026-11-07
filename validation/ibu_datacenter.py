@@ -77,7 +77,7 @@ def compare_official_start(scraped_start: datetime, official_start: datetime) ->
 def audit_persisted_ibu_starts(db_path: str = "data/sports_events.db", sample_size: int = 3) -> int:
     """Independently re-fetch official starts for upcoming persisted senior races."""
     import sqlite3
-    from urllib.request import Request, urlopen
+    from scrapers.biathlonworld import _fetch_official_payload
 
     if sample_size < 1:
         raise ValueError("sample_size must be positive")
@@ -96,12 +96,7 @@ def audit_persisted_ibu_starts(db_path: str = "data/sports_events.db", sample_si
             raise RuntimeError(f"IBU audit: malformed race ID {race_id}")
         event_id = race_id[:14]
         if event_id not in schedules:
-            url = "https://api.biathlonresults.com/modules/sportapi/api/Competitions?EventId=" + event_id
-            request = Request(url, headers={"Accept": "application/json", "User-Agent": "sports-tv-pipeline/1.0"})
-            with urlopen(request, timeout=25) as response:
-                payload = response.read(2_000_001)
-            if len(payload) > 2_000_000:
-                raise RuntimeError(f"IBU audit: oversized response for {event_id}")
+            payload = _fetch_official_payload(event_id)
             schedules[event_id] = parse_official_competitions(payload.decode("utf-8-sig"))
         official = schedules[event_id].get(race_id)
         stored = datetime.fromisoformat(stored_value.replace("Z", "+00:00"))
