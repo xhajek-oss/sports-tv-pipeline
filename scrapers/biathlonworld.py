@@ -1,6 +1,7 @@
 import re
 import time
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 from datetime import datetime, timezone
 from typing import Iterable
 from urllib.parse import urljoin, urlparse, parse_qs
@@ -94,6 +95,28 @@ VENUE_TIMEZONES = {
 
 IBU_API_URL = "https://api.biathlonresults.com/modules/sportapi/api/Competitions?EventId="
 
+IBU_PUBLIC_API_URL = "https://biathlonresults.com/modules/sportapi/api/Competitions?EventId="
+
+
+def _fetch_official_payload(event_id: str) -> bytes:
+    """Try both published IBU Sport API hosts; reject errors on both."""
+    for index, base_url in enumerate((IBU_API_URL, IBU_PUBLIC_API_URL)):
+        request = Request(base_url + event_id, headers={
+            "Accept": "application/json", "User-Agent": "sports-tv-pipeline/1.0",
+        })
+        try:
+            with urlopen(request, timeout=25) as response:
+                payload = response.read(2_000_001)
+            if len(payload) > 2_000_000:
+                raise RuntimeError(f"IBU API response too large for {event_id}")
+            return payload
+        except HTTPError as exc:
+            if exc.code != 401 or index == 1:
+                raise
+            print(f"[BIATHLON] API HTTP 401; trying public IBU host for {event_id}")
+    raise AssertionError("unreachable")
+
+
 # IBU RaceId discipline codes. Explicitly classify gender/age and event type.
 # Unknown suffixes must fail closed rather than silently delete valid races.
 RACE_CODES = {
@@ -132,13 +155,7 @@ def _race_name(code: str) -> str | None:
 def _official_event_races(event_id: str, location: str, country: str | None,
                           source_url: str) -> list[SportsEvent]:
     """Fetch official IBU start times. Network/schema failures abort the scrape."""
-    request = Request(IBU_API_URL + event_id, headers={
-        "Accept": "application/json", "User-Agent": "sports-tv-pipeline/1.0",
-    })
-    with urlopen(request, timeout=25) as response:
-        payload = response.read(2_000_001)
-    if len(payload) > 2_000_000:
-        raise RuntimeError(f"IBU API response too large for {event_id}")
+    payload = _fetch_official_payload(event_id)
     official = parse_official_competitions(payload.decode("utf-8-sig"))
     if not official:
         raise RuntimeError(f"IBU API returned no usable official races for {event_id}")
