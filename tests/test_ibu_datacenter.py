@@ -64,7 +64,7 @@ def test_persisted_ibu_audit_detects_time_mismatch(tmp_path, monkeypatch):
         def read(self, size):
             return b'[{"RaceId":"BT2627SWRLCP01SWSP","StartTime":"2027-01-01T12:00:00Z"}]'
 
-    monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: FakeResponse())
+    monkeypatch.setattr("scrapers.biathlonworld.urlopen", lambda *args, **kwargs: FakeResponse())
     assert ibu.audit_persisted_ibu_starts(str(db)) == 1
     with sqlite3.connect(db) as conn:
         conn.execute("UPDATE sports_events SET start_datetime = '2027-01-01T13:00:00+00:00'")
