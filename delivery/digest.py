@@ -409,9 +409,15 @@ def _media_signature(item: DigestItem) -> tuple[tuple[str, str, str], ...]:
 
 def _media_lines(broadcasts: tuple[Broadcast, ...], main_start: datetime) -> list[str]:
     grouped: dict[str, list[str]] = defaultdict(list)
+    oneplay_md_shown = False
     for b in broadcasts:
         kind = "online" if b.distribution == "online" else "tv"
         channel = _channel_name(b.channel)
+        if kind == "tv" and re.fullmatch(r"oneplay (?:sport )?md(?: ?[0-9]+)?", _norm(channel)):
+            if oneplay_md_shown:
+                continue
+            channel = "Oneplay MD"
+            oneplay_md_shown = True
         display = html.escape(channel)
         if kind == "tv" and b.source_url.startswith("https://tvprogram.idnes.cz/") and b.tv_start != main_start:
             display += f" ({b.tv_start:%H:%M})"

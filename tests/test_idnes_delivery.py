@@ -41,7 +41,8 @@ def test_weekly_and_daily_render_idnes_without_organizer_events(tmp_path):
         assert report is not None
         assert report.count("HC Dynamo Pardubice – HC Kometa Brno") == 1
         assert "16:45" in report
-        assert "Oneplay Sport MD7" in report and "Oneplay Sport MD10" in report
+        assert report.count("📺 Oneplay MD") == 1
+        assert "MD7" not in report and "MD10" not in report
         assert "Třinec" not in report and "Starý zápas" not in report
 
 

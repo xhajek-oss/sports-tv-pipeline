@@ -162,7 +162,7 @@ def test_weekly_ambiguous_oneplay_channels_collapse_to_single_md_label():
     )
 
     assert text is not None
-    assert "📺 Oneplay Sport MD" in text
+    assert "📺 Oneplay MD" in text
     assert "Oneplay Sport 2" not in text
     assert "Oneplay Sport 3" not in text
-    assert text.count("📺 Oneplay Sport MD") == 1
+    assert text.count("📺 Oneplay MD") == 1
