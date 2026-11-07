@@ -79,7 +79,7 @@ jobs:
               raise SystemExit(f"Production snapshot timestamp is in the future; refusing to send {os.environ['MODE']}.")
           if age.total_seconds() > max_age_seconds:
               raise SystemExit(f"Production snapshot is stale; refusing to send {os.environ['MODE']}.")
-          if weekly and age.total_seconds() > 8 * 60 * 60:
+          if weekly and age.total_seconds() > 24 * 60 * 60:
               with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env_file:
                   env_file.write(f"WEEKLY_SNAPSHOT_STALE_HOURS={int(age.total_seconds() // 3600)}\n")
 
