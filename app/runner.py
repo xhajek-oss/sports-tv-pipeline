@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import traceback
 from dataclasses import dataclass
@@ -234,6 +235,9 @@ class PipelineRunner:
             if not message:
                 print("[WEEKLY] no sports events next week; nothing sent")
                 return [SourceRun("telegram_weekly", "delivery", 0, "healthy", "nothing to send")]
+            stale_hours = os.getenv('WEEKLY_SNAPSHOT_STALE_HOURS')
+            if stale_hours:
+                message = (f'⚠️ Použita poslední známá data (aktualizace před {stale_hours} h). Časy a TV program ověřte u pořadatele.\n\n' + message)
             sent = send_digest(message)
             if not sent:
                 return [SourceRun("telegram_weekly", "delivery", 0, "warning", "TELEGRAM_BOT_TOKEN or TELEGRAM_DIGEST_CHAT_ID not configured")]
