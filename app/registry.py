@@ -21,7 +21,7 @@ class SourceSpec:
 
 SOURCES: dict[str, SourceSpec] = {
     "atletika_cz": SourceSpec("atletika_cz", "sports", CzechAthleticsScraper),
-    "idnes": SourceSpec("idnes", "tv", LiveIdnesTVScraper),
+    "idnes": SourceSpec("idnes", "tv", LiveIdnesTVScraper, allow_empty=True),
     "czechathletics_youtube": SourceSpec(
         "czechathletics_youtube", "tv", CzechAthleticsYouTubeScraper, allow_empty=True
     ),

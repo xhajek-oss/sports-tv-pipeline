@@ -45,6 +45,20 @@ def test_weekly_and_daily_render_idnes_without_organizer_events(tmp_path):
         assert "Třinec" not in report and "Starý zápas" not in report
 
 
+def test_successful_empty_idnes_guide_clears_stale_rows_only(tmp_path):
+    storage = SQLiteStorage(tmp_path / "sports.db")
+    start = datetime(2026, 11, 13, tzinfo=timezone.utc)
+    for source in ("idnes", "czechathletics_youtube"):
+        storage.upsert_tv_program(TVProgram(
+            source, source, "Channel", "Title", None, start, None, "https://example.test", start,
+        ))
+    storage.replace_idnes_programs([])
+    assert storage.conn.execute("SELECT source FROM tv_programs").fetchall() == [
+        ("czechathletics_youtube",),
+    ]
+    storage.close()
+
+
 def test_replays_studios_and_unselected_iihf_are_excluded():
     assert classify("Hokej: MS v ledním hokeji žen", "USA - Česko. Přímý přenos.") == []
     assert classify("Hokej: MS v ledním hokeji mužů", "USA - Česko. Přímý přenos.") == []

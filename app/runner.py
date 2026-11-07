@@ -121,11 +121,6 @@ class PipelineRunner:
                     for item in items:
                         storage.upsert(item)
                 elif spec.name == "idnes":
-                    if not items:
-                        message = "empty iDNES schedule; previous DB data preserved"
-                        print(f"[PROD] {spec.name}: {message}")
-                        results.append(SourceRun(spec.name, spec.kind, 0, "down", message))
-                        continue
                     storage.replace_idnes_programs(items)
                 else:
                     for item in items:

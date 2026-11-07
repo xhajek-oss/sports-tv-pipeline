@@ -27,7 +27,7 @@ scrapers + models + validation
 
 - `pr`: deterministic pre-merge validation; unit tests plus source registry validation; no external scrape.
 - `health`: checks sources without writing production data. State is persisted in `data/health_state.json`. Telegram is sent only when a source changes into a problem state or recovers.
-- `production`: restores the previous production SQLite database, scrapes each source independently, preserves prior data for sources that fail, validates Czech athletics event counts, and atomically replaces the iDNES programme after a complete, nonempty scrape.
+- `production`: restores the previous production SQLite database, scrapes each source independently, preserves prior data for sources that fail, validates Czech athletics event counts, and atomically replaces the iDNES programme after a complete scrape. An available guide can legitimately have no watched broadcasts.
 - `debug`: runs one selected source and uploads parsed JSON plus an exception traceback when present.
 
 ## Source registry

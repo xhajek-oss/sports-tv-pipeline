@@ -173,9 +173,9 @@ class SQLiteStorage:
             self._write_tv_program(program)
 
     def replace_idnes_programs(self, programs: list[TVProgram]) -> None:
-        """Replace the guide atomically after a complete, nonempty scrape."""
-        if not programs or any(program.source != "idnes" for program in programs):
-            raise ValueError("Expected a nonempty iDNES schedule")
+        """Replace the guide atomically after a complete scrape."""
+        if any(program.source != "idnes" for program in programs):
+            raise ValueError("Expected only iDNES programmes")
         with self.conn:
             self.conn.execute("DELETE FROM tv_programs WHERE source = 'idnes'")
             for program in programs:

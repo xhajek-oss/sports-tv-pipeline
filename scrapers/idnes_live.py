@@ -168,7 +168,7 @@ class LiveIdnesTVScraper(IdnesTVScraper):
         soup = BeautifulSoup(html, "html.parser")
         cards = soup.select("a[data-show][href]")
         if not cards:
-            if not self._detail_link_count(html, url):
+            if self.extend_schedule or not self._detail_link_count(html, url):
                 raise RuntimeError(f"iDNES programme grid is missing for {channel_slug}")
             # Compatibility with layouts exposing only detail links.
             for detail_url in self._channel_candidate_urls(html, url):
