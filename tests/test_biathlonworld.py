@@ -192,3 +192,36 @@ def test_official_ibu_start_times_render_in_prague_winter_and_summer(monkeypatch
         events = _official_event_races("BT2627SWRLCP01", "Kontiolahti", "Finland", "https://example.com")
         assert events[0].start_datetime.isoformat() == official_utc.replace("Z", "+00:00")
         assert events[0].start_datetime.astimezone(ZoneInfo("Europe/Prague")).isoformat() == expected_prague
+
+
+def test_ibu_401_falls_back_to_public_host(monkeypatch):
+    from io import BytesIO
+    from urllib.error import HTTPError
+    from scrapers.biathlonworld import _fetch_official_payload
+
+    called = []
+
+    def fake_urlopen(request, timeout):
+        called.append(request.full_url)
+        if len(called) == 1:
+            raise HTTPError(request.full_url, 401, "Unauthorized", {}, None)
+        return BytesIO(b'[{"RaceId":"BT2627SWRLCP01SMIN","StartTime":"2026-11-26T15:15:00Z"}]')
+
+    monkeypatch.setattr("scrapers.biathlonworld.urlopen", fake_urlopen)
+    assert b"RaceId" in _fetch_official_payload("BT2627SWRLCP01")
+    assert called[0].startswith("https://api.biathlonresults.com/")
+    assert called[1].startswith("https://biathlonresults.com/")
+
+
+def test_ibu_401_on_both_hosts_fails_closed(monkeypatch):
+    import pytest
+    from urllib.error import HTTPError
+    from scrapers.biathlonworld import _fetch_official_payload
+
+    def unauthorized(request, timeout):
+        raise HTTPError(request.full_url, 401, "Unauthorized", {}, None)
+
+    monkeypatch.setattr("scrapers.biathlonworld.urlopen", unauthorized)
+    with pytest.raises(HTTPError) as error:
+        _fetch_official_payload("BT2627SWRLCP01")
+    assert error.value.code == 401
