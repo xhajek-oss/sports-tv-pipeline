@@ -263,9 +263,25 @@ class LiveIdnesTVScraper(IdnesTVScraper):
             else:
                 channel_ids.update(grid.channel_ids)
                 missing.difference_update(grid.coverage)
-                uncovered -= grid.coverage
                 pages.append(grid)
 
+        # Individual channel grids can show the requested date in the header
+        # while still listing only the first ten days. The daily Czech grid
+        # can fill those dates for several channels with one request.
+        for day in sorted({day for _, day in missing}):
+            uncovered = {pair for pair in missing if pair[1] == day}
+            url = f"{BASE_URL}?dt={day:%d.%m.%Y}"
+            try:
+                grid = self._scan_grid(url, uncovered, expected_day=day)
+            except (RuntimeError, ValueError) as exc:
+                print(f"[IDNES] Czech grid day={day} unavailable: {exc}")
+                continue
+            channel_ids.update(grid.channel_ids)
+            missing.difference_update(grid.coverage)
+            pages.append(grid)
+
+        for channel in self.crawl_channels:
+            uncovered = {pair for pair in missing if pair[0] == channel}
             if channel_id := channel_ids.get(channel):
                 # A dated channel grid can fill several uncovered days.
                 while uncovered:

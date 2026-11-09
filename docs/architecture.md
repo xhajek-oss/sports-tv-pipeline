@@ -38,7 +38,9 @@ scrapers + models + validation
 
 The scraper reads daily sports grids over HTTP from the current Prague date
 through the end of the following week. It also reads the preceding grid for
-programmes after midnight and uses individual channel grids to fill gaps.
+programmes after midnight and fills gaps from individual channel grids and
+the daily Czech channel grid. The latter covers dates beyond the ten-day
+window shown by individual ČT1 and ČT2 grids.
 An incomplete date and channel matrix fails the scrape and preserves the
 previous snapshot. Ambiguous programme cards are resolved from their details.
 Rules in `config/watched_sports.yaml` match the competition and, where required,

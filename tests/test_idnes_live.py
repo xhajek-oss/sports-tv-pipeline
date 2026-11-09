@@ -135,6 +135,8 @@ def test_grouped_schedule_keeps_today_and_weekly_with_channel_fallback(tmp_path,
             return _grid(today, [(at(day), "ct-2", "Film") for day in days[:-1]], scraper.tz)
         if "program=99" in url:
             return _grid(days[-1], [(at(days[-1]), "ct-2", "Film")], scraper.tz)
+        if "/?dt=" in url:
+            return "<html>Unavailable</html>"
         if url.endswith("/oneplaysport-4"):
             return _grid(today, [(at(days[-1]), channel, hockey)], scraper.tz)
         day = datetime.strptime(url.split("=")[-1], "%d.%m.%Y").date()
@@ -153,7 +155,7 @@ def test_grouped_schedule_keeps_today_and_weekly_with_channel_fallback(tmp_path,
     assert [row.start_datetime.astimezone(scraper.tz) for row in rows] == [
         at(today, 0, 30), at(days[-1]),
     ]
-    assert len(requests) == len(days) + 4
+    assert len(requests) == len(days) + 5
     db = tmp_path / "sports.db"
     storage = SQLiteStorage(db)
     storage.replace_idnes_programs(rows)
@@ -219,3 +221,44 @@ def test_truncated_oneplay_card_reads_routes_from_full_detail(tmp_path, monkeypa
 
     assert {item.route for item in classify(row.title, row.description)} == {"MD7", "MD10"}
     assert row.end_local.hour == 20 and row.end_local.minute == 30
+
+
+def test_monday_czech_grid_fills_dates_past_individual_channel_window(tmp_path, monkeypatch):
+    from datetime import timedelta
+
+    scraper = make_scraper(tmp_path)
+    scraper.now = datetime(2026, 11, 9, 8, tzinfo=scraper.tz)
+    scraper.grouped_schedule = True
+    scraper.search_fallback = False
+    scraper.channels["ct-1"] = "ČT1"
+    scraper.channels["ct-2"] = "ČT2"
+    scraper.crawl_channels.extend(["ct-1", "ct-2"])
+    today = scraper.now.date()
+    days = [today + timedelta(days=i) for i in range(14)]
+    fallback_days = []
+
+    def at(day):
+        return datetime.combine(day, datetime.min.time(), scraper.tz).replace(hour=18)
+
+    def fetch(url):
+        if url.endswith(("/ct-1", "/ct-2")):
+            channel = url.rsplit("/", 1)[1]
+            return _grid(today, [(at(day), channel, "Film") for day in days[:10]], scraper.tz)
+        assert "&program=" not in url
+        day = datetime.strptime(url.rsplit("=", 1)[1], "%d.%m.%Y").date()
+        if "/sportovni?" in url:
+            return _grid(day, [(at(day), "oneplaysport-4", "Film")], scraper.tz)
+        fallback_days.append(day)
+        return _grid(day, [
+            (at(day), "ct-1", "Film"),
+            (at(day), "ct-2", "Atletika: Diamantová liga" if day == days[-1] else "Film"),
+        ], scraper.tz)
+
+    monkeypatch.setattr(scraper, "_fetch_html", fetch)
+    monkeypatch.setattr(scraper, "_fetch_detail_html",
+                        lambda url: (_ for _ in ()).throw(AssertionError("complete card")))
+
+    item, = scraper.scrape()
+    assert fallback_days == days[10:]
+    assert item.channel == "ČT2"
+    assert item.start_datetime.astimezone(scraper.tz) == at(days[-1])
