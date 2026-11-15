@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -41,12 +42,23 @@ def _send(message: str, *, chat_id_env: str, parse_mode: str | None = None) -> b
         data=payload,
         method="POST",
     )
-    with urlopen(request, timeout=20) as response:
-        if response.status >= 400:
-            raise RuntimeError(f"Telegram HTTP {response.status}")
-        result = json.loads(response.read().decode("utf-8"))
-        if not result.get("ok"):
-            raise RuntimeError(f"Telegram API error: {result}")
+    try:
+        with urlopen(request, timeout=20) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        description = ""
+        with error:
+            try:
+                body = json.loads(error.read(4096))
+            except (ValueError, OSError):
+                body = {}
+            if isinstance(body, dict) and isinstance(body.get("description"), str):
+                description = body["description"]
+        description = " ".join(description.replace(token, "[redacted]").replace(chat_id, "[redacted]").split())
+        reason = f" — {description[:240]}" if description else ""
+        raise RuntimeError(f"Telegram sendMessage to {chat_id_env} failed (HTTP {error.code}){reason}") from None
+    if not result.get("ok"):
+        raise RuntimeError(f"Telegram sendMessage to {chat_id_env} failed")
     return True
 
 
