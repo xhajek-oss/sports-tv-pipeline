@@ -36,30 +36,40 @@ def _send(message: str, *, chat_id_env: str, parse_mode: str | None = None) -> b
     data = {"chat_id": chat_id, "text": message}
     if parse_mode:
         data["parse_mode"] = parse_mode
-    payload = urlencode(data).encode("utf-8")
-    request = Request(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        data=payload,
-        method="POST",
-    )
-    try:
-        with urlopen(request, timeout=20) as response:
-            result = json.loads(response.read().decode("utf-8"))
-    except HTTPError as error:
-        description = ""
-        with error:
-            try:
-                body = json.loads(error.read(4096))
-            except (ValueError, OSError):
+    for attempt in range(2):
+        request = Request(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=urlencode(data).encode("utf-8"),
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=20) as response:
+                result = json.loads(response.read().decode("utf-8"))
+        except HTTPError as error:
+            with error:
+                try:
+                    body = json.loads(error.read(4096))
+                except (ValueError, OSError):
+                    body = {}
+            if not isinstance(body, dict):
                 body = {}
-            if isinstance(body, dict) and isinstance(body.get("description"), str):
-                description = body["description"]
-        description = " ".join(description.replace(token, "[redacted]").replace(chat_id, "[redacted]").split())
-        reason = f" — {description[:240]}" if description else ""
-        raise RuntimeError(f"Telegram sendMessage to {chat_id_env} failed (HTTP {error.code}){reason}") from None
-    if not result.get("ok"):
-        raise RuntimeError(f"Telegram sendMessage to {chat_id_env} failed")
-    return True
+            parameters = body.get("parameters")
+            migrated_id = parameters.get("migrate_to_chat_id") if isinstance(parameters, dict) else None
+            if error.code == 400 and attempt == 0 and type(migrated_id) is int and migrated_id < 0 and str(migrated_id) != chat_id:
+                print(f"[TELEGRAM] {chat_id_env} migrated to a supergroup; retrying delivery")
+                data["chat_id"] = str(migrated_id)
+                continue
+            description = body.get("description")
+            if not isinstance(description, str):
+                description = ""
+            for secret in {token, chat_id, data["chat_id"]}:
+                description = description.replace(secret, "[redacted]")
+            description = " ".join(description.split())
+            reason = f" — {description[:240]}" if description else ""
+            raise RuntimeError(f"Telegram sendMessage to {chat_id_env} failed (HTTP {error.code}){reason}") from None
+        if not result.get("ok"):
+            raise RuntimeError(f"Telegram sendMessage to {chat_id_env} failed")
+        return True
 
 
 def send_telegram(message: str) -> bool:
